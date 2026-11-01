@@ -1,0 +1,12 @@
+node_modules/
+dist-electron/
+dist-renderer/
+dist-package/
+resources/extracted/
+resources/ffmpeg.zip
+*.tmp
+*.log
+.setup-temp/
+
+# Large binaries (automatically fetched and verified by npm run setup)
+resources/bin/win32-x64/*.exe

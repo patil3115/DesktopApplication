@@ -1,0 +1,35 @@
+{
+  "name": "secure-video-compressor",
+  "version": "1.0.0",
+  "description": "Offline-first, zero-telemetry, privacy-focused desktop video compressor",
+  "main": "dist-electron/main/index.js",
+  "author": "Security & Privacy Engineering Team",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "dev:vite": "vite",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "build": "npm run build:electron && npm run build:renderer",
+    "start": "electron dist-electron/main/index.js",
+    "test:security": "node scripts/security-audit.js",
+    "package": "npm run build && node scripts/package-portable.js",
+    "setup": "node scripts/setup-binaries.js",
+    "postinstall": "node scripts/setup-binaries.js"
+  },
+  "dependencies": {
+    "lucide-react": "^1.16.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^45.2.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}
