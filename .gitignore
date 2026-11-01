@@ -10,3 +10,5 @@ resources/ffmpeg.zip
 
 # Large binaries (automatically fetched and verified by npm run setup)
 resources/bin/win32-x64/*.exe
+release/
+

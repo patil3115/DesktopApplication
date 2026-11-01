@@ -14,9 +14,11 @@
     "build": "npm run build:electron && npm run build:renderer",
     "start": "electron dist-electron/main/index.js",
     "test:security": "node scripts/security-audit.js",
-    "package": "npm run build && node scripts/package-portable.js",
+    "package": "npm run build && node scripts/package-portable.js && node scripts/build-installer.js",
     "setup": "node scripts/setup-binaries.js",
-    "postinstall": "node scripts/setup-binaries.js"
+    "postinstall": "node scripts/setup-binaries.js",
+    "package:portable": "npm run build && node scripts/package-portable.js",
+    "package:installer": "node scripts/build-installer.js"
   },
   "dependencies": {
     "lucide-react": "^1.16.0",
