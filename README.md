@@ -1,6 +1,7 @@
 # Secure Video Compressor
 
 An offline-first, zero-telemetry, privacy-by-design desktop video compression utility for Windows.
+If you want an application please visit Release
 
 ---
 
