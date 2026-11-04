@@ -9,7 +9,7 @@ import { validateInputVideoPath, validateOutputDirectoryPath } from './fs/path-s
 import { probeVideoFile } from './ffmpeg/probe';
 import { jobSupervisor } from './ffmpeg/compressor';
 import { audioExtractorSupervisor } from './ffmpeg/audio-extractor';
-import { VideoMetadata, StructuredError, FileSelectionResult } from '../common/types';
+import { VideoMetadata, StructuredError, FileSelectionResult, SelectedFileItem } from '../common/types';
 import { logger } from './utils/logger';
 
 interface ActiveFileState {
@@ -19,13 +19,14 @@ interface ActiveFileState {
 
 export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   let activeFile: ActiveFileState | null = null;
+  const activeFiles = new Map<string, ActiveFileState>();
 
   // Shared file selection handler
   const handleSelectVideo = async (): Promise<FileSelectionResult> => {
     try {
       const result = await dialog.showOpenDialog(mainWindow, {
-        title: 'Select Video File',
-        properties: ['openFile'],
+        title: 'Select Video File(s)',
+        properties: ['openFile', 'multiSelections'],
         filters: [
           {
             name: 'Supported Video Formats',
@@ -38,44 +39,75 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         return { canceled: true };
       }
 
-      const rawPath = result.filePaths[0];
-      if (!rawPath) {
+      const fileItems: SelectedFileItem[] = [];
+
+      for (const rawPath of result.filePaths) {
+        if (!rawPath) continue;
+
+        let validatedPath: string;
+        try {
+          validatedPath = validateInputVideoPath(rawPath);
+        } catch (valErr) {
+          logger.warn('File validation failed for ' + rawPath, valErr);
+          fileItems.push({
+            filePath: rawPath,
+            error: {
+              code: 'FILE_VALIDATION_FAILED',
+              userMessage: valErr instanceof Error ? valErr.message : 'Invalid or inaccessible video file.'
+            }
+          });
+          continue;
+        }
+
+        // Probe video metadata securely
+        const probeResult = await probeVideoFile(validatedPath);
+        if (!probeResult.success) {
+          fileItems.push({
+            filePath: validatedPath,
+            error: probeResult.error
+          });
+        } else {
+          const state: ActiveFileState = {
+            filePath: validatedPath,
+            metadata: probeResult.metadata
+          };
+          activeFiles.set(validatedPath, state);
+          fileItems.push({
+            filePath: validatedPath,
+            metadata: probeResult.metadata
+          });
+        }
+      }
+
+      if (fileItems.length === 0) {
         return { canceled: true };
       }
 
-      let validatedPath: string;
-      try {
-        validatedPath = validateInputVideoPath(rawPath);
-      } catch (valErr) {
-        logger.warn('File validation failed', valErr);
-        return {
-          canceled: false,
-          error: {
-            code: 'FILE_VALIDATION_FAILED',
-            userMessage: valErr instanceof Error ? valErr.message : 'Invalid or inaccessible video file.'
-          }
+      // First valid item becomes activeFile for single-file backwards compatibility
+      const firstValid = fileItems.find((item) => item.metadata);
+      if (firstValid && firstValid.metadata) {
+        activeFile = {
+          filePath: firstValid.filePath,
+          metadata: firstValid.metadata
         };
       }
 
-      // Probe video metadata securely
-      const probeResult = await probeVideoFile(validatedPath);
-      if (!probeResult.success) {
+      // If single file selected and had an error, return top-level error
+      const firstItem = fileItems[0];
+      if (fileItems.length === 1 && firstItem?.error) {
         return {
           canceled: false,
-          error: probeResult.error
+          filePath: firstItem.filePath,
+          error: firstItem.error,
+          files: fileItems
         };
       }
-
-      // State is securely tracked in the Main process
-      activeFile = {
-        filePath: validatedPath,
-        metadata: probeResult.metadata
-      };
 
       return {
         canceled: false,
-        filePath: validatedPath,
-        metadata: probeResult.metadata
+        filePath: activeFile?.filePath,
+        metadata: activeFile?.metadata,
+        files: fileItems
       };
     } catch (err) {
       logger.error('Failed to open native video file dialog', err);
@@ -120,55 +152,78 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   });
 
   // Handler: Start video compression
-  ipcMain.handle(IPC_CHANNELS.START_COMPRESSION, async (_event, rawSettings: unknown) => {
-    try {
-      if (!activeFile) {
-        return {
-          success: false,
-          error: {
-            code: 'INVALID_INPUT',
-            userMessage: 'No video file has been selected.'
+  ipcMain.handle(
+    IPC_CHANNELS.START_COMPRESSION,
+    async (_event, rawSettings: unknown, rawTargetPath?: unknown) => {
+      try {
+        let fileToProcess: ActiveFileState | null = null;
+
+        if (typeof rawTargetPath === 'string' && rawTargetPath.trim()) {
+          const validated = validateInputVideoPath(rawTargetPath);
+          fileToProcess = activeFiles.get(validated) || null;
+          if (!fileToProcess) {
+            const probeResult = await probeVideoFile(validated);
+            if (!probeResult.success) {
+              return { success: false, error: probeResult.error };
+            }
+            fileToProcess = {
+              filePath: validated,
+              metadata: probeResult.metadata
+            };
+            activeFiles.set(validated, fileToProcess);
           }
-        };
-      }
-
-      if (audioExtractorSupervisor.isRunning()) {
-        return {
-          success: false,
-          error: {
-            code: 'ALREADY_RUNNING',
-            userMessage: 'An audio extraction task is currently running. Please wait or cancel it.'
-          }
-        };
-      }
-
-      // Schema validate incoming settings
-      const settings = validateCompressionSettings(rawSettings);
-
-      const compressionResult = await jobSupervisor.startCompression(
-        activeFile.filePath,
-        activeFile.metadata.durationSeconds,
-        settings,
-        (progress) => {
-          if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.PROGRESS_EVENT, progress);
-          }
-        },
-        activeFile.metadata.hasAudio
-      );
-
-      return compressionResult;
-    } catch (err) {
-      logger.error('Unhandled compression error', err);
-      return {
-        success: false,
-        error: {
-          code: 'COMPRESSION_FAILED',
-          userMessage: err instanceof Error ? err.message : 'An unexpected compression error occurred.'
+        } else {
+          fileToProcess = activeFile;
         }
-      };
+
+        if (!fileToProcess) {
+          return {
+            success: false,
+            error: {
+              code: 'INVALID_INPUT',
+              userMessage: 'No video file has been selected.'
+            }
+          };
+        }
+
+        if (audioExtractorSupervisor.isRunning()) {
+          return {
+            success: false,
+            error: {
+              code: 'ALREADY_RUNNING',
+              userMessage: 'An audio extraction task is currently running. Please wait or cancel it.'
+            }
+          };
+        }
+
+        // Schema validate incoming settings
+        const settings = validateCompressionSettings(rawSettings);
+
+        const compressionResult = await jobSupervisor.startCompression(
+          fileToProcess.filePath,
+          fileToProcess.metadata.durationSeconds,
+          settings,
+          (progress) => {
+            if (!mainWindow.isDestroyed()) {
+              mainWindow.webContents.send(IPC_CHANNELS.PROGRESS_EVENT, progress);
+            }
+          },
+          fileToProcess.metadata.hasAudio
+        );
+
+        return compressionResult;
+      } catch (err) {
+        logger.error('Unhandled compression error', err);
+        return {
+          success: false,
+          error: {
+            code: 'COMPRESSION_FAILED',
+            userMessage: err instanceof Error ? err.message : 'An unexpected compression error occurred.'
+          }
+        };
+      }
     }
-  });
+  );
 
   // Handler: Cancel video compression
   ipcMain.handle(IPC_CHANNELS.CANCEL_COMPRESSION, async () => {
@@ -177,77 +232,100 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   });
 
   // Handler: Start audio extraction
-  ipcMain.handle(IPC_CHANNELS.START_AUDIO_EXTRACTION, async (_event, rawSettings: unknown) => {
-    try {
-      if (!activeFile) {
-        return {
-          success: false,
-          error: {
-            code: 'INVALID_INPUT',
-            userMessage: 'No video file has been selected.'
+  ipcMain.handle(
+    IPC_CHANNELS.START_AUDIO_EXTRACTION,
+    async (_event, rawSettings: unknown, rawTargetPath?: unknown) => {
+      try {
+        let fileToProcess: ActiveFileState | null = null;
+
+        if (typeof rawTargetPath === 'string' && rawTargetPath.trim()) {
+          const validated = validateInputVideoPath(rawTargetPath);
+          fileToProcess = activeFiles.get(validated) || null;
+          if (!fileToProcess) {
+            const probeResult = await probeVideoFile(validated);
+            if (!probeResult.success) {
+              return { success: false, error: probeResult.error };
+            }
+            fileToProcess = {
+              filePath: validated,
+              metadata: probeResult.metadata
+            };
+            activeFiles.set(validated, fileToProcess);
           }
-        };
-      }
-
-      if (!activeFile.metadata.hasAudio || activeFile.metadata.audioStreams.length === 0) {
-        return {
-          success: false,
-          error: {
-            code: 'AUDIO_STREAM_NOT_FOUND',
-            userMessage: 'This video does not contain an audio stream that can be extracted.'
-          }
-        };
-      }
-
-      if (jobSupervisor.isRunning()) {
-        return {
-          success: false,
-          error: {
-            code: 'ALREADY_RUNNING',
-            userMessage: 'A video compression task is currently running. Please wait or cancel it.'
-          }
-        };
-      }
-
-      const settings = validateAudioExtractionSettings(rawSettings);
-
-      const selectedStream =
-        activeFile.metadata.audioStreams[settings.audioStreamIndex] || activeFile.metadata.audioStreams[0];
-
-      if (!selectedStream) {
-        return {
-          success: false,
-          error: {
-            code: 'AUDIO_STREAM_NOT_FOUND',
-            userMessage: 'Selected audio stream index does not exist in video.'
-          }
-        };
-      }
-
-      const extractionResult = await audioExtractorSupervisor.startExtraction(
-        activeFile.filePath,
-        activeFile.metadata.durationSeconds,
-        selectedStream,
-        settings,
-        (progress) => {
-          if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AUDIO_PROGRESS_EVENT, progress);
-          }
+        } else {
+          fileToProcess = activeFile;
         }
-      );
 
-      return extractionResult;
-    } catch (err) {
-      logger.error('Unhandled audio extraction error', err);
-      return {
-        success: false,
-        error: {
-          code: 'COMPRESSION_FAILED',
-          userMessage: err instanceof Error ? err.message : 'An unexpected audio extraction error occurred.'
+        if (!fileToProcess) {
+          return {
+            success: false,
+            error: {
+              code: 'INVALID_INPUT',
+              userMessage: 'No video file has been selected.'
+            }
+          };
         }
-      };
+
+        if (!fileToProcess.metadata.hasAudio || fileToProcess.metadata.audioStreams.length === 0) {
+          return {
+            success: false,
+            error: {
+              code: 'AUDIO_STREAM_NOT_FOUND',
+              userMessage: 'This video does not contain an audio stream that can be extracted.'
+            }
+          };
+        }
+
+        if (jobSupervisor.isRunning()) {
+          return {
+            success: false,
+            error: {
+              code: 'ALREADY_RUNNING',
+              userMessage: 'A video compression task is currently running. Please wait or cancel it.'
+            }
+          };
+        }
+
+        const settings = validateAudioExtractionSettings(rawSettings);
+
+        const selectedStream =
+          fileToProcess.metadata.audioStreams[settings.audioStreamIndex] || fileToProcess.metadata.audioStreams[0];
+
+        if (!selectedStream) {
+          return {
+            success: false,
+            error: {
+              code: 'AUDIO_STREAM_NOT_FOUND',
+              userMessage: 'Selected audio stream index does not exist in video.'
+            }
+          };
+        }
+
+        const extractionResult = await audioExtractorSupervisor.startExtraction(
+          fileToProcess.filePath,
+          fileToProcess.metadata.durationSeconds,
+          selectedStream,
+          settings,
+          (progress) => {
+            if (!mainWindow.isDestroyed()) {
+              mainWindow.webContents.send(IPC_CHANNELS.AUDIO_PROGRESS_EVENT, progress);
+            }
+          }
+        );
+
+        return extractionResult;
+      } catch (err) {
+        logger.error('Unhandled audio extraction error', err);
+        return {
+          success: false,
+          error: {
+            code: 'COMPRESSION_FAILED',
+            userMessage: err instanceof Error ? err.message : 'An unexpected audio extraction error occurred.'
+          }
+        };
+      }
     }
-  });
+  );
 
   // Handler: Cancel audio extraction
   ipcMain.handle(IPC_CHANNELS.CANCEL_AUDIO_EXTRACTION, async () => {

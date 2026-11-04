@@ -14,6 +14,7 @@ interface SettingsPanelProps {
   onCompress: () => void;
   onSelectOutputDir: () => void;
   disabled: boolean;
+  batchCount?: number;
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
@@ -21,7 +22,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
   onChange,
   onCompress,
   onSelectOutputDir,
-  disabled
+  disabled,
+  batchCount
 }) => {
   return (
     <div className="card">
@@ -137,7 +139,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
           disabled={disabled}
         >
           <Play size={18} fill="currentColor" />
-          Compress Video
+          {batchCount && batchCount > 1 ? `Compress All Videos (${batchCount})` : 'Compress Video'}
         </button>
       </div>
     </div>

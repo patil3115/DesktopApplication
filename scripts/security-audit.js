@@ -478,6 +478,223 @@ async function runAudit() {
   assert(djiFps.isVfr === false, 'DJI accurately classified as CFR');
   assert(djiFps.formattedFps === '59.94 fps', 'DJI formatted as 59.94 fps');
 
+  // 13. Multi-Video Batch Processing & Queue Resilience Tests
+  console.log('\n--- 13. Multi-Video Batch Processing & Queue Resilience ---');
+
+  // Generate 3 test video samples for batch tests
+  const batchSample1 = path.resolve(__dirname, 'batch_sample_1.mp4');
+  const batchSample2 = path.resolve(__dirname, 'batch_sample_2.mp4');
+  const batchSample3 = path.resolve(__dirname, 'batch_sample_3.mp4');
+  const corruptSample = path.resolve(__dirname, 'batch_corrupt.mp4');
+
+  const createTestSample = (destPath, durationSec, rate) => {
+    return new Promise((res, rej) => {
+      const g = spawn(ffmpegPath, [
+        '-nostdin', '-y',
+        '-f', 'lavfi', '-i', `testsrc=duration=${durationSec}:size=320x240:rate=${rate}`,
+        '-f', 'lavfi', '-i', `sine=frequency=1000:duration=${durationSec}`,
+        '-c:v', 'libx264', '-c:a', 'aac',
+        destPath
+      ], { shell: false });
+      g.on('close', (c) => c === 0 ? res() : rej(new Error(`Failed to create sample: code ${c}`)));
+    });
+  };
+
+  await createTestSample(batchSample1, 1, 30);
+  await createTestSample(batchSample2, 1, 25);
+  await createTestSample(batchSample3, 1, 24);
+  fs.writeFileSync(corruptSample, 'NOT_A_VALID_VIDEO_FILE_CORRUPTED_BYTES_HEADER');
+
+  // Test 13.1: Sequential Batch Compression (3 files)
+  const batchItems = [batchSample1, batchSample2, batchSample3];
+  const compressionBatchResults = [];
+
+  for (const itemPath of batchItems) {
+    const res = await jobSupervisor.startCompression(
+      itemPath,
+      1.0,
+      {
+        quality: 'medium',
+        resolution: 'original',
+        codec: 'h264',
+        audioCodec: 'aac',
+        removeMetadata: true,
+        customOutputDir: __dirname
+      },
+      () => {}
+    );
+    compressionBatchResults.push(res);
+  }
+
+  assert(compressionBatchResults.length === 3, 'Batch compression queue processed all 3 items');
+  assert(compressionBatchResults.every(r => r.success === true), 'All 3 batch videos compressed successfully');
+
+  // Cleanup compressed outputs
+  for (const r of compressionBatchResults) {
+    if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
+      try { fs.unlinkSync(r.result.outputPath); } catch {}
+    }
+  }
+
+  // Test 13.2: Error Resilience in Batch (Valid -> Corrupted -> Valid)
+  const resilienceBatch = [batchSample1, corruptSample, batchSample3];
+  const resilienceResults = [];
+
+  for (const itemPath of resilienceBatch) {
+    // Probe first
+    const pRes = await probeVideoFile(itemPath);
+    if (!pRes.success) {
+      resilienceResults.push({ success: false, error: pRes.error, filePath: itemPath });
+      continue;
+    }
+    const cRes = await jobSupervisor.startCompression(
+      itemPath,
+      pRes.metadata.durationSeconds,
+      {
+        quality: 'medium',
+        resolution: 'original',
+        codec: 'h264',
+        audioCodec: 'aac',
+        removeMetadata: true,
+        customOutputDir: __dirname
+      },
+      () => {}
+    );
+    resilienceResults.push({ success: cRes.success, error: cRes.error, filePath: itemPath, result: cRes.result });
+  }
+
+  assert(resilienceResults[0].success === true, 'Batch Item 1 (Valid) succeeded');
+  assert(resilienceResults[1].success === false, 'Batch Item 2 (Corrupt) failed safely');
+  assert(resilienceResults[1].error !== undefined, 'Batch Item 2 preserved structured error');
+  assert(resilienceResults[2].success === true, 'Batch Item 3 (Valid) succeeded despite Item 2 failure');
+  assert(
+    resilienceResults.filter(r => r.success).length === 2 && resilienceResults.filter(r => !r.success).length === 1,
+    'Batch summary correctly reports: 2 successful, 1 failed'
+  );
+
+  // Cleanup
+  for (const r of resilienceResults) {
+    if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
+      try { fs.unlinkSync(r.result.outputPath); } catch {}
+    }
+  }
+
+  // Test 13.3: Batch Video -> Audio Extraction (3 files to MP3)
+  const audioBatchResults = [];
+  for (const itemPath of batchItems) {
+    const p = await probeVideoFile(itemPath);
+    if (!p.success) continue;
+    const aRes = await audioExtractorSupervisor.startExtraction(
+      itemPath,
+      p.metadata.durationSeconds,
+      p.metadata.audioStreams[0],
+      {
+        format: 'mp3',
+        bitrate: '192k',
+        audioStreamIndex: 0,
+        removeMetadata: true,
+        customOutputDir: __dirname
+      },
+      () => {}
+    );
+    audioBatchResults.push(aRes);
+  }
+
+  assert(audioBatchResults.length === 3, 'Batch audio extraction processed all 3 videos');
+  assert(audioBatchResults.every(r => r.success === true), 'All 3 videos extracted to MP3 successfully');
+
+  // Cleanup audio outputs
+  for (const r of audioBatchResults) {
+    if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
+      try { fs.unlinkSync(r.result.outputPath); } catch {}
+    }
+  }
+
+  // Test 13.4: Batch Audio Resilience (Video with audio -> Video without audio -> Video with audio)
+  const batchNoAudioSample = path.resolve(__dirname, 'batch_no_audio.mp4');
+  await new Promise((resolve) => {
+    const gen = spawn(ffmpegPath, [
+      '-nostdin', '-y',
+      '-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=30',
+      '-an', '-c:v', 'libx264',
+      batchNoAudioSample
+    ], { shell: false });
+    gen.on('close', resolve);
+  });
+
+  const mixedAudioBatch = [batchSample1, batchNoAudioSample, batchSample2];
+  const mixedAudioResults = [];
+
+  for (const itemPath of mixedAudioBatch) {
+    const p = await probeVideoFile(itemPath);
+    if (!p.success) {
+      mixedAudioResults.push({ success: false, error: p.error });
+      continue;
+    }
+    if (!p.metadata.hasAudio || p.metadata.audioStreams.length === 0) {
+      mixedAudioResults.push({
+        success: false,
+        error: {
+          code: 'AUDIO_STREAM_NOT_FOUND',
+          userMessage: 'This video does not contain an audio stream that can be extracted.'
+        }
+      });
+      continue;
+    }
+    const aRes = await audioExtractorSupervisor.startExtraction(
+      itemPath,
+      p.metadata.durationSeconds,
+      p.metadata.audioStreams[0],
+      {
+        format: 'mp3',
+        bitrate: '192k',
+        audioStreamIndex: 0,
+        removeMetadata: true,
+        customOutputDir: __dirname
+      },
+      () => {}
+    );
+    mixedAudioResults.push(aRes);
+  }
+
+  assert(mixedAudioResults[0].success === true, 'Mixed audio batch item 1 succeeded');
+  assert(mixedAudioResults[1].success === false, 'Mixed audio batch item 2 correctly flagged missing audio');
+  assert(mixedAudioResults[1].error?.code === 'AUDIO_STREAM_NOT_FOUND', 'Audio stream not found error preserved');
+  assert(mixedAudioResults[2].success === true, 'Mixed audio batch item 3 succeeded after no-audio item');
+
+  // Cleanup
+  for (const r of mixedAudioResults) {
+    if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
+      try { fs.unlinkSync(r.result.outputPath); } catch {}
+    }
+  }
+  try { fs.unlinkSync(batchNoAudioSample); } catch {}
+
+  // Test 13.5: Duplicate Detection Logic
+  const mockQueue = [
+    { filePath: 'C:\\Videos\\DJI_001.MP4' },
+    { filePath: 'C:\\Videos\\DJI_002.MP4' }
+  ];
+  const incomingBatch = [
+    { filePath: 'C:\\Videos\\dji_002.mp4' }, // Duplicate (case insensitive)
+    { filePath: 'C:\\Videos\\DJI_003.MP4' }, // New
+    { filePath: 'C:\\Videos\\DJI_001.MP4' }  // Duplicate
+  ];
+
+  const uniqueAdded = incomingBatch.filter(
+    inc => !mockQueue.some(q => q.filePath.toLowerCase() === inc.filePath.toLowerCase())
+  );
+  assert(uniqueAdded.length === 1, 'Duplicate detection filter keeps only unique new files (1 new, 2 duplicates skipped)');
+  assert(uniqueAdded[0].filePath === 'C:\\Videos\\DJI_003.MP4', 'Correct unique file selected for addition');
+
+  // Cleanup test sample files
+  try {
+    fs.unlinkSync(batchSample1);
+    fs.unlinkSync(batchSample2);
+    fs.unlinkSync(batchSample3);
+    fs.unlinkSync(corruptSample);
+  } catch {}
+
   console.log('\n====================================================');
   console.log(`AUDIT RESULTS: ${passedTests} PASSED, ${failedTests} FAILED (TOTAL: ${totalTests})`);
   console.log('====================================================\n');

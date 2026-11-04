@@ -44,7 +44,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading }) => {
       </div>
       <div>
         <p className="dropzone-text-primary">
-          {isLoading ? 'Inspecting video metadata...' : 'Drag & Drop Video Here'}
+          {isLoading ? 'Inspecting video metadata...' : 'Drag & Drop Video(s) Here'}
         </p>
         <p className="dropzone-text-secondary">Supported: MP4, MKV, MOV, AVI, WEBM, M4V</p>
       </div>
@@ -57,7 +57,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading }) => {
         }}
         disabled={isLoading}
       >
-        Browse Video
+        Browse Videos
       </button>
     </div>
   );

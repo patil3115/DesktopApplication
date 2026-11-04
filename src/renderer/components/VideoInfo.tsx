@@ -1,10 +1,11 @@
 import React from 'react';
-import { Info, RefreshCw, Volume2, AlertCircle } from 'lucide-react';
+import { Info, RefreshCw, Volume2, AlertCircle, Plus } from 'lucide-react';
 import { VideoMetadata } from '../../common/types';
 
 interface VideoInfoProps {
   metadata: VideoMetadata;
   onChangeFile: () => void;
+  onAddMore?: () => void;
   disabled: boolean;
   mode?: 'compress' | 'audio';
   selectedAudioTrackIndex?: number;
@@ -14,6 +15,7 @@ interface VideoInfoProps {
 export const VideoInfo: React.FC<VideoInfoProps> = ({
   metadata,
   onChangeFile,
+  onAddMore,
   disabled,
   mode = 'compress',
   selectedAudioTrackIndex = 0,
@@ -28,16 +30,30 @@ export const VideoInfo: React.FC<VideoInfoProps> = ({
           <Info size={16} />
           {mode === 'audio' ? 'Source Video & Audio Details' : 'Video Information'}
         </h2>
-        <button
-          type="button"
-          className="btn-browse"
-          style={{ padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
-          onClick={onChangeFile}
-          disabled={disabled}
-        >
-          <RefreshCw size={12} />
-          Change Video
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {onAddMore && (
+            <button
+              type="button"
+              className="btn-browse"
+              style={{ padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+              onClick={onAddMore}
+              disabled={disabled}
+            >
+              <Plus size={12} />
+              Add to Batch
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn-browse"
+            style={{ padding: '6px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+            onClick={onChangeFile}
+            disabled={disabled}
+          >
+            <RefreshCw size={12} />
+            Change Video
+          </button>
+        </div>
       </div>
 
       {!metadata.hasAudio && mode === 'audio' && (

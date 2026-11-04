@@ -56,13 +56,14 @@ contextBridge.exposeInMainWorld('videoCompressor', {
   },
 
   startCompression: async (
-    settings: CompressionSettings
+    settings: CompressionSettings,
+    targetFilePath?: string
   ): Promise<{
     success: boolean;
     result?: CompressionResult;
     error?: StructuredError;
   }> => {
-    return await ipcRenderer.invoke(IPC_START_COMPRESSION, settings);
+    return await ipcRenderer.invoke(IPC_START_COMPRESSION, settings, targetFilePath);
   },
 
   cancelCompression: async (): Promise<{ success: boolean }> => {
@@ -70,13 +71,14 @@ contextBridge.exposeInMainWorld('videoCompressor', {
   },
 
   startAudioExtraction: async (
-    settings: AudioExtractionSettings
+    settings: AudioExtractionSettings,
+    targetFilePath?: string
   ): Promise<{
     success: boolean;
     result?: AudioExtractionResult;
     error?: StructuredError;
   }> => {
-    return await ipcRenderer.invoke(IPC_START_AUDIO_EXTRACTION, settings);
+    return await ipcRenderer.invoke(IPC_START_AUDIO_EXTRACTION, settings, targetFilePath);
   },
 
   cancelAudioExtraction: async (): Promise<{ success: boolean }> => {

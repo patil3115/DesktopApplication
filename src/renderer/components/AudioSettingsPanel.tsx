@@ -15,6 +15,7 @@ interface AudioSettingsPanelProps {
   disabled: boolean;
   selectedStream?: AudioStreamInfo;
   hasAudio: boolean;
+  batchCount?: number;
 }
 
 export const AudioSettingsPanel: React.FC<AudioSettingsPanelProps> = ({
@@ -24,7 +25,8 @@ export const AudioSettingsPanel: React.FC<AudioSettingsPanelProps> = ({
   onSelectOutputDir,
   disabled,
   selectedStream,
-  hasAudio
+  hasAudio,
+  batchCount
 }) => {
   const isLossless = settings.format === 'wav' || settings.format === 'flac';
 
@@ -158,7 +160,7 @@ export const AudioSettingsPanel: React.FC<AudioSettingsPanelProps> = ({
           disabled={disabled || !hasAudio}
         >
           <Play size={18} fill="currentColor" />
-          Extract Audio
+          {batchCount && batchCount > 1 ? `Convert All Videos (${batchCount})` : 'Extract Audio'}
         </button>
       </div>
     </div>

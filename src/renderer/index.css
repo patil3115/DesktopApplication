@@ -635,3 +635,40 @@ input, select {
   cursor: not-allowed;
 }
 
+/* Queue List and Item Styling */
+.queue-item {
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.queue-item:hover {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: var(--bg-surface-hover);
+}
+
+.btn-remove-item:hover:not(:disabled) {
+  color: #f87171 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+}
+
+.btn-clear-queue:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2) !important;
+}
+
+.queue-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.queue-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.queue-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+
+.queue-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+

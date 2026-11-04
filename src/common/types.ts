@@ -119,11 +119,43 @@ export interface StructuredError {
   readonly userMessage: string;
 }
 
+export interface SelectedFileItem {
+  readonly filePath: string;
+  readonly metadata?: VideoMetadata;
+  readonly error?: StructuredError;
+}
+
 export interface FileSelectionResult {
   readonly canceled: boolean;
   readonly filePath?: string;
   readonly metadata?: VideoMetadata;
   readonly error?: StructuredError;
+  readonly files?: SelectedFileItem[];
+}
+
+export interface BatchItemResult {
+  readonly filePath: string;
+  readonly fileName: string;
+  readonly success: boolean;
+  readonly result?: CompressionResult | AudioExtractionResult;
+  readonly error?: StructuredError;
+}
+
+export interface VideoQueueItem {
+  readonly id: string;
+  readonly filePath: string;
+  readonly fileName: string;
+  readonly fileSizeBytes: number;
+  readonly formattedSize: string;
+  readonly durationSeconds: number;
+  readonly formattedDuration: string;
+  readonly resolutionLabel: string;
+  readonly hasAudio: boolean;
+  readonly metadata: VideoMetadata;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  compressResult?: CompressionResult;
+  audioResult?: AudioExtractionResult;
+  error?: StructuredError;
 }
 
 export interface VideoCompressorAPI {
@@ -131,9 +163,9 @@ export interface VideoCompressorAPI {
   selectVideo(): Promise<FileSelectionResult>;
   selectVideoFile(): Promise<FileSelectionResult>;
   selectOutputDirectory(): Promise<{ canceled: boolean; dirPath?: string; error?: StructuredError }>;
-  startCompression(settings: CompressionSettings): Promise<{ success: boolean; result?: CompressionResult; error?: StructuredError }>;
+  startCompression(settings: CompressionSettings, targetFilePath?: string): Promise<{ success: boolean; result?: CompressionResult; error?: StructuredError }>;
   cancelCompression(): Promise<{ success: boolean }>;
-  startAudioExtraction(settings: AudioExtractionSettings): Promise<{ success: boolean; result?: AudioExtractionResult; error?: StructuredError }>;
+  startAudioExtraction(settings: AudioExtractionSettings, targetFilePath?: string): Promise<{ success: boolean; result?: AudioExtractionResult; error?: StructuredError }>;
   cancelAudioExtraction(): Promise<{ success: boolean }>;
   showInFolder(filePath: string): Promise<void>;
   onProgress(callback: (progress: CompressionProgress) => void): () => void;
