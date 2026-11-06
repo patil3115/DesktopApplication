@@ -32,6 +32,17 @@ const {
 const { parseFfmpegProgress } = require('../dist-electron/main/ffmpeg/progress-parser');
 const { TempFileManager } = require('../dist-electron/main/fs/temp-manager');
 const { generateSafeAudioDestinationPath } = require('../dist-electron/main/ffmpeg/audio-extractor');
+const {
+  formatBytes,
+  formatFps,
+  parseRational,
+  extractFpsFromStream
+} = require('../dist-electron/common/formatters');
+const {
+  calculateMinTargetSizeBytes,
+  calculateTargetBitrate,
+  calculateReductionPercentage
+} = require('../dist-electron/common/target-size');
 
 let totalTests = 0;
 let passedTests = 0;
@@ -94,6 +105,81 @@ async function runAudit() {
     removeMetadata: true
   });
   assert(validSettings.quality === 'medium' && validSettings.resolution === '720p', 'Accept strictly valid compression payload');
+
+  // Verify all 5 compression modes are accepted
+  const autoSettings = validateCompressionSettings({ quality: 'auto', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true });
+  assert(autoSettings.quality === 'auto', 'Accept Automatic compression mode');
+
+  const highSettings = validateCompressionSettings({ quality: 'high', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true });
+  assert(highSettings.quality === 'high', 'Accept High compression mode');
+
+  const lowSettings = validateCompressionSettings({ quality: 'low', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true });
+  assert(lowSettings.quality === 'low', 'Accept Low compression mode');
+
+  const customSettings = validateCompressionSettings({
+    quality: 'custom',
+    resolution: 'original',
+    codec: 'h264',
+    audioCodec: 'aac',
+    removeMetadata: true,
+    targetSizeBytes: 250000000,
+    targetPercent: 50
+  });
+  assert(customSettings.quality === 'custom' && customSettings.targetSizeBytes === 250000000 && customSettings.targetPercent === 50, 'Accept Custom target size mode');
+
+  // Reject invalid target sizes and percentages
+  assertThrows(() => validateCompressionSettings({ quality: 'custom', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true, targetSizeBytes: -100 }), 'Reject negative targetSizeBytes');
+  assertThrows(() => validateCompressionSettings({ quality: 'custom', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true, targetSizeBytes: 10.5 }), 'Reject non-integer targetSizeBytes');
+  assertThrows(() => validateCompressionSettings({ quality: 'custom', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true, targetPercent: 0 }), 'Reject zero targetPercent');
+  assertThrows(() => validateCompressionSettings({ quality: 'custom', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true, targetPercent: 120 }), 'Reject targetPercent > 100');
+  assertThrows(() => validateCompressionSettings({ quality: 'custom', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true, targetPercent: -5 }), 'Reject negative targetPercent');
+
+  // 2.5 Target Size Calculations and Bitrate Math Unit Tests
+  console.log('\n--- 2.5 Target Size & Bitrate Math Engine Tests ---');
+  assert(formatBytes(500) === '500 B', 'formatBytes formats bytes correctly');
+  assert(formatBytes(500 * 1024) === '500 KB', 'formatBytes formats KB correctly');
+  assert(formatBytes(250 * 1024 * 1024) === '250.0 MB', 'formatBytes formats MB correctly');
+  assert(formatBytes(2.5 * 1024 * 1024 * 1024) === '2.50 GB', 'formatBytes formats GB correctly');
+
+  const minSize5s = calculateMinTargetSizeBytes({ durationSeconds: 5, width: 1920, height: 1080, fps: 30, codec: 'h264', originalSizeBytes: 100 * 1024 * 1024 });
+  const minSize60s = calculateMinTargetSizeBytes({ durationSeconds: 60, width: 1920, height: 1080, fps: 30, codec: 'h264', originalSizeBytes: 100 * 1024 * 1024 });
+  assert(minSize60s > minSize5s, 'Minimum target size scales dynamically with video duration');
+
+  const minSize720p = calculateMinTargetSizeBytes({ durationSeconds: 10, width: 1280, height: 720, fps: 30, codec: 'h264', originalSizeBytes: 50 * 1024 * 1024 });
+  const minSize1080p = calculateMinTargetSizeBytes({ durationSeconds: 10, width: 1920, height: 1080, fps: 30, codec: 'h264', originalSizeBytes: 50 * 1024 * 1024 });
+  assert(minSize1080p > minSize720p, 'Minimum target size scales dynamically with resolution');
+
+  const minSizeH264 = calculateMinTargetSizeBytes({ durationSeconds: 10, width: 1280, height: 720, fps: 30, codec: 'h264', originalSizeBytes: 50 * 1024 * 1024 });
+  const minSizeH265 = calculateMinTargetSizeBytes({ durationSeconds: 10, width: 1280, height: 720, fps: 30, codec: 'h265', originalSizeBytes: 50 * 1024 * 1024 });
+  assert(minSizeH265 < minSizeH264, 'H.265 requires fewer minimum bits than H.264 due to higher compression efficiency');
+
+  assert(minSize5s > 0 && Number.isFinite(minSize5s), 'Minimum target size is strictly positive and finite');
+
+  const bitrateCalc = calculateTargetBitrate({
+    targetSizeBytes: 250 * 1024 * 1024,
+    durationSeconds: 1000,
+    codec: 'h264',
+    audioCodec: 'aac',
+    hasAudio: true
+  });
+  // 250 * 1024 * 1024 * 8 / 1000s / 1000 = 2097 kbps total
+  assert(bitrateCalc.totalBitrateKbps === 2097, 'Total bitrate matches (target bits / duration)');
+  assert(bitrateCalc.videoBitrateKbps > 0, 'Video bitrate calculated properly after deducting audio & overhead');
+  assert(bitrateCalc.audioBitrateKbps > 0, 'Audio bitrate allocated within budget');
+  assert(bitrateCalc.isViable === true, 'Sufficient target size flagged as viable');
+
+  const unviableCalc = calculateTargetBitrate({
+    targetSizeBytes: 10 * 1024, // 10 KB for 1000s is impossible
+    durationSeconds: 1000,
+    codec: 'h264',
+    audioCodec: 'aac',
+    hasAudio: true
+  });
+  assert(unviableCalc.isViable === false, 'Technically impossible target bitrate correctly flagged as unviable');
+
+  assert(calculateReductionPercentage(500 * 1024 * 1024, 250 * 1024 * 1024) === 50, 'calculateReductionPercentage returns 50% for 500MB -> 250MB');
+  assert(calculateReductionPercentage(100, 10) === 90, 'calculateReductionPercentage returns 90% for 100 -> 10');
+  assert(calculateReductionPercentage(100, 150) === 0, 'calculateReductionPercentage clamps to 0% if target >= original');
 
   // 3. Audio Extraction Settings Schema Tests
   console.log('\n--- 3. Audio Extraction Schema & Injection Protection ---');
@@ -210,10 +296,120 @@ async function runAudit() {
     },
     () => {}
   );
-  assert(transcodeResult.success === true, 'Video compression completed successfully');
+  assert(transcodeResult.success === true, 'Video compression (Medium) completed successfully');
   if (transcodeResult.success && transcodeResult.result) {
     try { fs.unlinkSync(transcodeResult.result.outputPath); } catch {}
   }
+
+  // Test 8.2: Automatic Mode (Exact backward compatibility)
+  const autoTranscodeResult = await jobSupervisor.startCompression(
+    testSamplePath,
+    2.0,
+    {
+      quality: 'auto',
+      resolution: 'original',
+      codec: 'h264',
+      audioCodec: 'aac',
+      removeMetadata: true,
+      customOutputDir: path.dirname(testSamplePath)
+    },
+    () => {}
+  );
+  assert(autoTranscodeResult.success === true, 'Video compression (Automatic) completed successfully');
+  if (autoTranscodeResult.success && autoTranscodeResult.result) {
+    try { fs.unlinkSync(autoTranscodeResult.result.outputPath); } catch {}
+  }
+
+  // Test 8.3: High Quality Mode
+  const highTranscodeResult = await jobSupervisor.startCompression(
+    testSamplePath,
+    2.0,
+    {
+      quality: 'high',
+      resolution: 'original',
+      codec: 'h264',
+      audioCodec: 'aac',
+      removeMetadata: true,
+      customOutputDir: path.dirname(testSamplePath)
+    },
+    () => {}
+  );
+  assert(highTranscodeResult.success === true, 'Video compression (High) completed successfully');
+  if (highTranscodeResult.success && highTranscodeResult.result) {
+    try { fs.unlinkSync(highTranscodeResult.result.outputPath); } catch {}
+  }
+
+  // Test 8.4: Low Quality Mode
+  const lowTranscodeResult = await jobSupervisor.startCompression(
+    testSamplePath,
+    2.0,
+    {
+      quality: 'low',
+      resolution: 'original',
+      codec: 'h264',
+      audioCodec: 'aac',
+      removeMetadata: true,
+      customOutputDir: path.dirname(testSamplePath)
+    },
+    () => {}
+  );
+  assert(lowTranscodeResult.success === true, 'Video compression (Low) completed successfully');
+  if (lowTranscodeResult.success && lowTranscodeResult.result) {
+    try { fs.unlinkSync(lowTranscodeResult.result.outputPath); } catch {}
+  }
+
+  // Test 8.5: Custom Target Size Mode (Two-Pass FFmpeg Transcode)
+  const sampleStat = fs.statSync(testSamplePath);
+  const targetBytes = Math.max(16384, Math.round(sampleStat.size * 0.7));
+  const customTranscodeResult = await jobSupervisor.startCompression(
+    testSamplePath,
+    2.0,
+    {
+      quality: 'custom',
+      resolution: 'original',
+      codec: 'h264',
+      audioCodec: 'aac',
+      removeMetadata: true,
+      customOutputDir: path.dirname(testSamplePath),
+      targetSizeBytes: targetBytes
+    },
+    () => {},
+    true,
+    probeResult.metadata
+  );
+  assert(customTranscodeResult.success === true, 'Custom target size compression (Two-Pass) completed successfully');
+  if (customTranscodeResult.success && customTranscodeResult.result) {
+    assert(customTranscodeResult.result.targetSizeBytes === targetBytes, 'Result record includes targetSizeBytes');
+    assert(fs.existsSync(customTranscodeResult.result.outputPath), 'Two-pass output file exists');
+    try { fs.unlinkSync(customTranscodeResult.result.outputPath); } catch {}
+  }
+
+  // Verify pass log files were cleaned up
+  const tempDir = new TempFileManager().getTempDirectory();
+  const remainingPassLogs = fs.existsSync(tempDir)
+    ? fs.readdirSync(tempDir).filter(f => f.includes('passlog'))
+    : [];
+  assert(remainingPassLogs.length === 0, 'Pass log files deterministically purged from temp directory after two-pass encoding');
+
+  // Test 8.6: Custom Target Size below minimum feasible floor rejection
+  const belowMinResult = await jobSupervisor.startCompression(
+    testSamplePath,
+    2.0,
+    {
+      quality: 'custom',
+      resolution: 'original',
+      codec: 'h264',
+      audioCodec: 'aac',
+      removeMetadata: true,
+      customOutputDir: path.dirname(testSamplePath),
+      targetSizeBytes: 200 // Unrealistic 200 bytes for 2s video
+    },
+    () => {},
+    true,
+    probeResult.metadata
+  );
+  assert(belowMinResult.success === false, 'Target size below minimum feasible floor safely rejected');
+  assert(belowMinResult.error && belowMinResult.error.code === 'INVALID_INPUT', 'Rejection provides INVALID_INPUT structured error');
 
   // 9. Live Video -> Audio Extraction Tests (MP3, M4A Stream Copy, WAV, FLAC, OGG)
   console.log('\n--- 9. Live Video -> Audio Extraction Tests ---');
@@ -413,7 +609,6 @@ async function runAudit() {
 
   // 12. File Size Formatter & FPS Rational Parser Tests
   console.log('\n--- 12. File Size Formatter & FPS Rational Parser Tests ---');
-  const { formatBytes, formatFps, parseRational, extractFpsFromStream } = require('../dist-electron/common/formatters');
 
   // Test 12.1: Human-readable file size formatting
   assert(formatBytes(842 * 1024) === '842 KB', 'Formats 842 KB correctly');
@@ -686,6 +881,35 @@ async function runAudit() {
   );
   assert(uniqueAdded.length === 1, 'Duplicate detection filter keeps only unique new files (1 new, 2 duplicates skipped)');
   assert(uniqueAdded[0].filePath === 'C:\\Videos\\DJI_003.MP4', 'Correct unique file selected for addition');
+
+  // Test 13.6: Batch Custom Target Size (Percentage Reduction)
+  const batchCustomResults = [];
+  const targetPercent = 60; // 60% of original
+  for (const itemPath of [batchSample1, batchSample2]) {
+    const stat = fs.statSync(itemPath);
+    const itemTarget = Math.max(16384, Math.round(stat.size * (targetPercent / 100)));
+    const cRes = await jobSupervisor.startCompression(
+      itemPath,
+      1.0,
+      {
+        quality: 'custom',
+        resolution: 'original',
+        codec: 'h264',
+        audioCodec: 'aac',
+        removeMetadata: true,
+        customOutputDir: __dirname,
+        targetSizeBytes: itemTarget
+      },
+      () => {}
+    );
+    batchCustomResults.push(cRes);
+  }
+  assert(batchCustomResults.length === 2 && batchCustomResults.every(r => r.success === true), 'Batch compression with custom target size processed all items successfully');
+  for (const r of batchCustomResults) {
+    if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
+      try { fs.unlinkSync(r.result.outputPath); } catch {}
+    }
+  }
 
   // Cleanup test sample files
   try {

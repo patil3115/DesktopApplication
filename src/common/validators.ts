@@ -9,7 +9,7 @@ import {
   AudioBitrate
 } from './types';
 
-const VALID_QUALITY: ReadonlySet<string> = new Set<QualityPreset>(['high', 'medium', 'low']);
+const VALID_QUALITY: ReadonlySet<string> = new Set<QualityPreset>(['auto', 'high', 'medium', 'low', 'custom']);
 const VALID_RESOLUTION: ReadonlySet<string> = new Set<ResolutionOption>(['original', '1080p', '720p', '480p']);
 const VALID_VIDEO_CODECS: ReadonlySet<string> = new Set<VideoCodecOption>(['h264', 'h265']);
 const VALID_AUDIO_CODECS: ReadonlySet<string> = new Set<AudioCodecOption>(['aac', 'copy', 'none']);
@@ -92,13 +92,33 @@ export function validateCompressionSettings(input: unknown): CompressionSettings
     customOutputDir = validateSafePath(rec['customOutputDir'], 'customOutputDir');
   }
 
+  let targetSizeBytes: number | null | undefined = undefined;
+  if (rec['targetSizeBytes'] !== undefined && rec['targetSizeBytes'] !== null) {
+    const parsedTarget = Number(rec['targetSizeBytes']);
+    if (!Number.isFinite(parsedTarget) || parsedTarget <= 0 || !Number.isInteger(parsedTarget)) {
+      throw new ValidationError('targetSizeBytes must be a positive integer.');
+    }
+    targetSizeBytes = parsedTarget;
+  }
+
+  let targetPercent: number | null | undefined = undefined;
+  if (rec['targetPercent'] !== undefined && rec['targetPercent'] !== null) {
+    const parsedPercent = Number(rec['targetPercent']);
+    if (!Number.isFinite(parsedPercent) || parsedPercent <= 0 || parsedPercent > 100) {
+      throw new ValidationError('targetPercent must be a number between 1 and 100.');
+    }
+    targetPercent = parsedPercent;
+  }
+
   return {
     quality: rec['quality'] as QualityPreset,
     resolution: rec['resolution'] as ResolutionOption,
     codec: rec['codec'] as VideoCodecOption,
     audioCodec: rec['audioCodec'] as AudioCodecOption,
     removeMetadata: rec['removeMetadata'] as boolean,
-    customOutputDir
+    customOutputDir,
+    targetSizeBytes,
+    targetPercent
   };
 }
 

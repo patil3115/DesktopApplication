@@ -22,6 +22,10 @@ export class TempFileManager {
     this.ensureDirectoryExists();
   }
 
+  public getTempDirectory(): string {
+    return this.tempDir;
+  }
+
   private ensureDirectoryExists(): void {
     try {
       if (!fs.existsSync(this.tempDir)) {

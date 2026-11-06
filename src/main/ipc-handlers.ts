@@ -208,7 +208,8 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
               mainWindow.webContents.send(IPC_CHANNELS.PROGRESS_EVENT, progress);
             }
           },
-          fileToProcess.metadata.hasAudio
+          fileToProcess.metadata.hasAudio,
+          fileToProcess.metadata
         );
 
         return compressionResult;

@@ -30,6 +30,15 @@ export const ResultCard: React.FC<ResultCardProps> = ({ result, onOpenFolder, on
           <div className="comparison-val">{formatBytes(result.originalSizeBytes)}</div>
         </div>
 
+        {result.targetSizeBytes && result.targetSizeBytes > 0 ? (
+          <div className="comparison-box">
+            <div className="comparison-label">Target Size</div>
+            <div className="comparison-val" style={{ color: 'var(--accent-emerald-light)' }}>
+              {formatBytes(result.targetSizeBytes)}
+            </div>
+          </div>
+        ) : null}
+
         <div className="comparison-box">
           <div className="comparison-label">Compressed Size</div>
           <div className="comparison-val">{formatBytes(result.compressedSizeBytes)}</div>

@@ -151,6 +151,7 @@ export const BatchResultCard: React.FC<BatchResultCardProps> = ({
                   {item.status === 'completed' && mode === 'compress' && item.compressResult && (
                     <div style={{ fontSize: 11, color: '#34d399', marginTop: 2 }}>
                       {item.formattedSize} → {formatBytes(item.compressResult.compressedSizeBytes)} (-{item.compressResult.reductionPercentage}%)
+                      {item.compressResult.targetSizeBytes ? ` • Target: ${formatBytes(item.compressResult.targetSizeBytes)}` : ''}
                     </div>
                   )}
 

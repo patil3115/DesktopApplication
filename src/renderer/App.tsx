@@ -48,12 +48,14 @@ export const App: React.FC = () => {
   const [compressProgress, setCompressProgress] = useState<CompressionProgress | null>(null);
   const [compressResult, setCompressResult] = useState<CompressionResult | null>(null);
   const [compressSettings, setCompressSettings] = useState<CompressionSettings>({
-    quality: 'medium',
+    quality: 'auto',
     resolution: 'original',
     codec: 'h264',
     audioCodec: 'aac',
     removeMetadata: true,
-    customOutputDir: null
+    customOutputDir: null,
+    targetSizeBytes: null,
+    targetPercent: 50
   });
 
   // Audio Extractor States
@@ -346,8 +348,18 @@ export const App: React.FC = () => {
         setCompressProgress(null);
 
         try {
+          let itemSettings = compressSettings;
+          if (compressSettings.quality === 'custom') {
+            const targetPercent = compressSettings.targetPercent ?? 50;
+            const itemTarget = Math.round(currentItem.fileSizeBytes * (targetPercent / 100));
+            itemSettings = {
+              ...compressSettings,
+              targetSizeBytes: itemTarget
+            };
+          }
+
           const res = await window.videoCompressor.startCompression(
-            compressSettings,
+            itemSettings,
             currentItem.filePath
           );
 
@@ -645,6 +657,9 @@ export const App: React.FC = () => {
                   onCompress={handleStartCompression}
                   onSelectOutputDir={handleSelectCompressOutputDir}
                   disabled={isCompressing || isExtractingAudio}
+                  batchCount={1}
+                  videoMetadata={videoMetadata}
+                  queue={queue}
                 />
               )}
 
@@ -734,6 +749,8 @@ export const App: React.FC = () => {
                   onSelectOutputDir={handleSelectCompressOutputDir}
                   disabled={isCompressing || isExtractingAudio}
                   batchCount={queue.length}
+                  videoMetadata={videoMetadata}
+                  queue={queue}
                 />
               )}
 

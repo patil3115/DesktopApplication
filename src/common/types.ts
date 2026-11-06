@@ -36,7 +36,7 @@ export interface VideoMetadata {
   readonly hasAudio: boolean;
 }
 
-export type QualityPreset = 'high' | 'medium' | 'low';
+export type QualityPreset = 'auto' | 'high' | 'medium' | 'low' | 'custom';
 export type ResolutionOption = 'original' | '1080p' | '720p' | '480p';
 export type VideoCodecOption = 'h264' | 'h265';
 export type AudioCodecOption = 'aac' | 'copy' | 'none';
@@ -48,6 +48,8 @@ export interface CompressionSettings {
   readonly audioCodec: AudioCodecOption;
   readonly removeMetadata: boolean;
   readonly customOutputDir?: string | null;
+  readonly targetSizeBytes?: number | null;
+  readonly targetPercent?: number | null;
 }
 
 export type AudioFormat = 'mp3' | 'm4a' | 'wav' | 'flac' | 'ogg';
@@ -89,6 +91,7 @@ export interface CompressionResult {
   readonly compressedSizeBytes: number;
   readonly reductionPercentage: number;
   readonly durationSeconds: number;
+  readonly targetSizeBytes?: number;
 }
 
 export interface StructuredError {
@@ -156,6 +159,8 @@ export interface VideoQueueItem {
   compressResult?: CompressionResult;
   audioResult?: AudioExtractionResult;
   error?: StructuredError;
+  targetSizeBytes?: number;
+  targetPercent?: number;
 }
 
 export interface VideoCompressorAPI {
