@@ -95,17 +95,18 @@ waitForVite(() => {
   console.log('[3/3] Vite is ready. Launching Electron desktop window...\n');
 
   const electronCliPath = path.join(rootDir, 'node_modules', 'electron', 'cli.js');
+  const electronEnv = { ...process.env };
+  delete electronEnv.ELECTRON_RUN_AS_NODE;
+  electronEnv.NODE_ENV = 'development';
+  electronEnv.VITE_DEV_SERVER_URL = 'http://localhost:5173';
+
   const electronProcess = spawn(
     process.execPath,
     [electronCliPath, 'dist-electron/main/index.js'],
     {
       cwd: rootDir,
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        NODE_ENV: 'development',
-        VITE_DEV_SERVER_URL: 'http://localhost:5173'
-      }
+      env: electronEnv
     }
   );
 
