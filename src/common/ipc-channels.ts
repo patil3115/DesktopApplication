@@ -15,7 +15,12 @@ export const IPC_CHANNELS = {
   // Video -> Audio extraction channels
   START_AUDIO_EXTRACTION: 'audio:extract-start',
   CANCEL_AUDIO_EXTRACTION: 'audio:extract-cancel',
-  AUDIO_PROGRESS_EVENT: 'audio:extract-progress'
+  AUDIO_PROGRESS_EVENT: 'audio:extract-progress',
+
+  // Image compression channels
+  SELECT_IMAGES: 'image:select',
+  START_IMAGE_COMPRESSION: 'image:compress-start',
+  CANCEL_IMAGE_COMPRESSION: 'image:compress-cancel'
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

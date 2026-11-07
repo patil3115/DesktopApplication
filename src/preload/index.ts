@@ -6,7 +6,10 @@ import type {
   StructuredError,
   FileSelectionResult,
   AudioExtractionSettings,
-  AudioExtractionResult
+  AudioExtractionResult,
+  ImageCompressionSettings,
+  ImageCompressionResult,
+  ImageSelectionResult
 } from '../common/types';
 
 /**
@@ -29,6 +32,11 @@ const IPC_PROGRESS_EVENT = 'secure-compressor:progress-event';
 const IPC_START_AUDIO_EXTRACTION = 'audio:extract-start';
 const IPC_CANCEL_AUDIO_EXTRACTION = 'audio:extract-cancel';
 const IPC_AUDIO_PROGRESS_EVENT = 'audio:extract-progress';
+
+// Image compression channels
+const IPC_SELECT_IMAGES = 'image:select';
+const IPC_START_IMAGE_COMPRESSION = 'image:compress-start';
+const IPC_CANCEL_IMAGE_COMPRESSION = 'image:compress-cancel';
 
 console.log('[Preload] Loaded successfully in sandboxed renderer');
 
@@ -83,6 +91,25 @@ contextBridge.exposeInMainWorld('videoCompressor', {
 
   cancelAudioExtraction: async (): Promise<{ success: boolean }> => {
     return await ipcRenderer.invoke(IPC_CANCEL_AUDIO_EXTRACTION);
+  },
+
+  selectImages: async (): Promise<ImageSelectionResult> => {
+    return await ipcRenderer.invoke(IPC_SELECT_IMAGES);
+  },
+
+  startImageCompression: async (
+    settings: ImageCompressionSettings,
+    targetFilePath: string
+  ): Promise<{
+    success: boolean;
+    result?: ImageCompressionResult;
+    error?: StructuredError;
+  }> => {
+    return await ipcRenderer.invoke(IPC_START_IMAGE_COMPRESSION, settings, targetFilePath);
+  },
+
+  cancelImageCompression: async (): Promise<{ success: boolean }> => {
+    return await ipcRenderer.invoke(IPC_CANCEL_IMAGE_COMPRESSION);
   },
 
   showInFolder: async (filePath: string): Promise<void> => {

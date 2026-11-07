@@ -23,10 +23,12 @@ const crypto = require('crypto');
 const {
   validateSafePath,
   validateCompressionSettings,
-  validateAudioExtractionSettings
+  validateAudioExtractionSettings,
+  validateImageCompressionSettings
 } = require('../dist-electron/common/validators');
 const {
   validateInputVideoPath,
+  validateInputImagePath,
   validateOutputDirectoryPath
 } = require('../dist-electron/main/fs/path-sanitizer');
 const { parseFfmpegProgress } = require('../dist-electron/main/ffmpeg/progress-parser');
@@ -43,6 +45,15 @@ const {
   calculateTargetBitrate,
   calculateReductionPercentage
 } = require('../dist-electron/common/target-size');
+const {
+  calculateMinImageTargetSizeBytes,
+  calculateImageReductionPercentage
+} = require('../dist-electron/common/image-target-size');
+const { probeImageFile } = require('../dist-electron/main/image/image-probe');
+const {
+  imageJobSupervisor,
+  generateSafeImageDestinationPath
+} = require('../dist-electron/main/image/image-compressor');
 
 let totalTests = 0;
 let passedTests = 0;
@@ -917,6 +928,314 @@ async function runAudit() {
     fs.unlinkSync(batchSample2);
     fs.unlinkSync(batchSample3);
     fs.unlinkSync(corruptSample);
+  } catch {}
+
+  // 14. Image Path, Schema, and Mathematical Target Size Validation
+  console.log('\n--- 14. Image Path Validation & Schema Security ---');
+  assertThrows(() => validateInputImagePath(''), 'Reject empty image path');
+  assertThrows(() => validateInputImagePath(null), 'Reject null image path');
+  assertThrows(() => validateInputImagePath(12345), 'Reject non-string image path');
+  assertThrows(() => validateInputImagePath('C:\\images\\photo\0.png'), 'Reject null byte in image path');
+  assertThrows(() => validateInputImagePath('\\\\network-share\\images\\photo.png'), 'Reject UNC network image path (\\\\)');
+  assertThrows(() => validateInputImagePath('//network-share/images/photo.png'), 'Reject UNC network image path (//)');
+  assertThrows(() => validateInputImagePath('C:\\Windows\\System32\\calc.exe'), 'Reject system OS directory access');
+  assertThrows(() => validateInputImagePath('C:\\DesktopApplication\\scripts\\security-audit.js'), 'Reject non-image extension (.js)');
+  assertThrows(() => validateInputImagePath('C:\\nonexistent_image_123456.jpg'), 'Reject nonexistent image file');
+
+  console.log('\n--- 14.1 Image Settings Schema & Injection Protection ---');
+  assertThrows(() => validateImageCompressionSettings(null), 'Reject null image settings');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'extreme' }), 'Reject invalid image quality preset');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'high', outputFormat: 'gif' }), 'Reject unallowed output format (gif)');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'high', outputFormat: 'jpg; rm -rf /' }), 'Reject command injection in format');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'custom', outputFormat: 'original', removeMetadata: true, targetSizeBytes: -500 }), 'Reject negative image target size');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'custom', outputFormat: 'original', removeMetadata: true, targetPercent: 0 }), 'Reject 0 image target percent');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'custom', outputFormat: 'original', removeMetadata: true, targetPercent: 120 }), 'Reject >100 image target percent');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'high', outputFormat: 'original', removeMetadata: 'no' }), 'Reject non-boolean removeMetadata in image');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'high', outputFormat: 'original', removeMetadata: true, resize: { enabled: true, mode: 'percentage', percentage: 600 } }), 'Reject >500 resize percentage');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'high', outputFormat: 'original', removeMetadata: true, resize: { enabled: true, mode: 'percentage', percentage: 0 } }), 'Reject 0 resize percentage');
+  assertThrows(() => validateImageCompressionSettings({ quality: 'high', outputFormat: 'original', removeMetadata: true, resize: { enabled: true, mode: 'dimensions', width: -100 } }), 'Reject negative resize width');
+
+  const validAutoImgSettings = validateImageCompressionSettings({
+    quality: 'auto',
+    outputFormat: 'original',
+    removeMetadata: true
+  });
+  assert(validAutoImgSettings.quality === 'auto', 'Accept valid Automatic image settings');
+
+  const validCustomImgSettings = validateImageCompressionSettings({
+    quality: 'custom',
+    outputFormat: 'webp',
+    targetSizeBytes: 50000,
+    targetPercent: 50,
+    resize: {
+      enabled: true,
+      mode: 'percentage',
+      percentage: 75,
+      lockAspectRatio: true
+    },
+    removeMetadata: false
+  });
+  assert(validCustomImgSettings.quality === 'custom' && validCustomImgSettings.outputFormat === 'webp', 'Accept valid Custom Target Size image settings with resize');
+
+  console.log('\n--- 14.2 Image Target Size Math Engine & Collision Safety ---');
+  const minPng = calculateMinImageTargetSizeBytes(1920, 1080, 'png', 5 * 1024 * 1024);
+  const minWebp = calculateMinImageTargetSizeBytes(1920, 1080, 'webp', 5 * 1024 * 1024);
+  const minJpg = calculateMinImageTargetSizeBytes(1920, 1080, 'jpg', 5 * 1024 * 1024);
+  assert(minPng > minWebp, 'WebP has higher compression ceiling and lower minimum size than PNG');
+  assert(minJpg > 0 && minWebp > 0 && minPng > 0, 'Image minimum target sizes are strictly positive');
+  assert(calculateImageReductionPercentage(1000, 500) === 50, 'calculateImageReductionPercentage computes 50% for 1000 -> 500');
+  assert(calculateImageReductionPercentage(1000, 100) === 90, 'calculateImageReductionPercentage computes 90% for 1000 -> 100');
+  assert(calculateImageReductionPercentage(1000, 1200) === 0, 'calculateImageReductionPercentage clamps to 0% if target >= original');
+
+  const dummyImage = path.join(__dirname, 'mock_image.jpg');
+  const dummyImageComp = path.join(__dirname, 'mock_image_compressed.jpg');
+  fs.writeFileSync(dummyImageComp, 'dummy compressed image');
+  const safeImgPath1 = generateSafeImageDestinationPath(dummyImage, 'jpg', __dirname);
+  assert(path.basename(safeImgPath1) === 'mock_image_compressed (1).jpg', 'generateSafeImageDestinationPath auto-increments on collision');
+  fs.writeFileSync(safeImgPath1, 'dummy compressed image 2');
+  const safeImgPath2 = generateSafeImageDestinationPath(dummyImage, 'jpg', __dirname);
+  assert(path.basename(safeImgPath2) === 'mock_image_compressed (2).jpg', 'generateSafeImageDestinationPath auto-increments on second collision');
+  try { fs.unlinkSync(dummyImageComp); } catch {}
+  try { fs.unlinkSync(safeImgPath1); } catch {}
+
+  // 15. Live Image Probing, Thumbnail Generation, Multi-Format Compression & Batch
+  console.log('\n--- 15. Live Image Probing & Thumbnail Generation ---');
+  const testPngAlpha = path.resolve(__dirname, 'test_sample_alpha.png');
+  const testJpg = path.resolve(__dirname, 'test_sample.jpg');
+  const testWebp = path.resolve(__dirname, 'test_sample.webp');
+  const testBmp = path.resolve(__dirname, 'test_sample.bmp');
+
+  // Generate synthetic test images
+  await new Promise((resolve, reject) => {
+    const gen = spawn(ffmpegPath, [
+      '-nostdin', '-y',
+      '-f', 'lavfi', '-i', 'smptebars=size=320x240:duration=1',
+      '-frames:v', '1', '-pix_fmt', 'rgba',
+      testPngAlpha
+    ], { shell: false });
+    gen.on('close', (code) => code === 0 ? resolve() : reject(new Error('Failed to generate PNG')));
+  });
+
+  await new Promise((resolve, reject) => {
+    const gen = spawn(ffmpegPath, [
+      '-nostdin', '-y',
+      '-f', 'lavfi', '-i', 'testsrc=size=320x240:duration=1',
+      '-frames:v', '1',
+      testJpg
+    ], { shell: false });
+    gen.on('close', (code) => code === 0 ? resolve() : reject(new Error('Failed to generate JPG')));
+  });
+
+  await new Promise((resolve, reject) => {
+    const gen = spawn(ffmpegPath, [
+      '-nostdin', '-y',
+      '-f', 'lavfi', '-i', 'testsrc=size=320x240:duration=1',
+      '-frames:v', '1', '-c:v', 'libwebp',
+      testWebp
+    ], { shell: false });
+    gen.on('close', (code) => code === 0 ? resolve() : reject(new Error('Failed to generate WebP')));
+  });
+
+  await new Promise((resolve, reject) => {
+    const gen = spawn(ffmpegPath, [
+      '-nostdin', '-y',
+      '-f', 'lavfi', '-i', 'testsrc=size=320x240:duration=1',
+      '-frames:v', '1',
+      testBmp
+    ], { shell: false });
+    gen.on('close', (code) => code === 0 ? resolve() : reject(new Error('Failed to generate BMP')));
+  });
+
+  // Probe tests
+  const probePng = await probeImageFile(testPngAlpha);
+  assert(probePng.success === true && probePng.metadata?.format === 'png', 'Probed PNG file successfully');
+  assert(probePng.metadata?.width === 320 && probePng.metadata?.height === 240, 'Probed PNG dimensions match (320x240)');
+  assert(probePng.metadata?.hasAlpha === true, 'Probed PNG correctly detected alpha transparency');
+  assert(typeof probePng.metadata?.thumbnailBase64 === 'string' && probePng.metadata.thumbnailBase64.startsWith('data:image/webp;base64,'), 'Generated local in-memory WebP thumbnail');
+
+  const probeJpg = await probeImageFile(testJpg);
+  assert(probeJpg.success === true && probeJpg.metadata?.format === 'jpg', 'Probed JPG file successfully');
+  assert(probeJpg.metadata?.hasAlpha === false, 'Probed JPG correctly reports no alpha channel');
+
+  const probeWebp = await probeImageFile(testWebp);
+  assert(probeWebp.success === true && probeWebp.metadata?.format === 'webp', 'Probed WebP file successfully');
+
+  const probeBmp = await probeImageFile(testBmp);
+  assert(probeBmp.success === true && probeBmp.metadata?.format === 'bmp', 'Probed BMP file successfully');
+
+  console.log('\n--- 15.1 Live Image Compression Modes ---');
+  // Mode 1: Automatic (JPG -> JPG)
+  const autoRes = await imageJobSupervisor.startCompression(
+    testJpg,
+    {
+      quality: 'auto',
+      outputFormat: 'original',
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(autoRes.success === true && Boolean(autoRes.result?.outputPath), 'Automatic JPG compression succeeded');
+  assert(fs.existsSync(autoRes.result.outputPath), 'Automatic output file exists on disk');
+  if (autoRes.result?.outputPath) { try { fs.unlinkSync(autoRes.result.outputPath); } catch {} }
+
+  // Mode 2: High Quality (PNG -> PNG)
+  const highRes = await imageJobSupervisor.startCompression(
+    testPngAlpha,
+    {
+      quality: 'high',
+      outputFormat: 'original',
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(highRes.success === true && (highRes.result?.outputFormat === 'PNG' || highRes.result?.format === 'png'), 'High quality PNG compression succeeded with PNG format preserved');
+  if (highRes.result?.outputPath) { try { fs.unlinkSync(highRes.result.outputPath); } catch {} }
+
+  // Mode 3: Medium Quality (WebP -> WebP)
+  const medRes = await imageJobSupervisor.startCompression(
+    testWebp,
+    {
+      quality: 'medium',
+      outputFormat: 'original',
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(medRes.success === true && (medRes.result?.outputFormat === 'WEBP' || medRes.result?.format === 'webp'), 'Medium quality WebP compression succeeded');
+  if (medRes.result?.outputPath) { try { fs.unlinkSync(medRes.result.outputPath); } catch {} }
+
+  // Mode 4: Low Quality (BMP -> WebP conversion)
+  const lowRes = await imageJobSupervisor.startCompression(
+    testBmp,
+    {
+      quality: 'low',
+      outputFormat: 'webp',
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(lowRes.success === true && (lowRes.result?.outputFormat === 'WEBP' || lowRes.result?.format === 'webp'), 'Low quality BMP -> WebP conversion succeeded');
+  if (lowRes.result?.outputPath) { try { fs.unlinkSync(lowRes.result.outputPath); } catch {} }
+
+  console.log('\n--- 15.2 Transparency Handling (PNG with Alpha -> JPG) ---');
+  const transparentToJpgRes = await imageJobSupervisor.startCompression(
+    testPngAlpha,
+    {
+      quality: 'high',
+      outputFormat: 'jpg',
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(transparentToJpgRes.success === true && (transparentToJpgRes.result?.outputFormat === 'JPG' || transparentToJpgRes.result?.format === 'jpg'), 'Transparent PNG -> JPG conversion succeeded');
+  const probeTransJpg = await probeImageFile(transparentToJpgRes.result.outputPath);
+  assert(probeTransJpg.success === true && probeTransJpg.metadata?.hasAlpha === false, 'Output JPG has clean flattened composite (no transparency crash)');
+  if (transparentToJpgRes.result?.outputPath) { try { fs.unlinkSync(transparentToJpgRes.result.outputPath); } catch {} }
+
+  console.log('\n--- 15.3 Image Resizing Engine ---');
+  // Percentage resize: 50% of 320x240 -> 160x120
+  const resizePercentRes = await imageJobSupervisor.startCompression(
+    testJpg,
+    {
+      quality: 'medium',
+      outputFormat: 'jpg',
+      resize: {
+        enabled: true,
+        mode: 'percentage',
+        percentage: 50,
+        lockAspectRatio: true
+      },
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(resizePercentRes.success === true, 'Percentage resizing completed successfully');
+  const probeResize50 = await probeImageFile(resizePercentRes.result.outputPath);
+  assert(probeResize50.metadata?.width === 160 && probeResize50.metadata?.height === 120, 'Image dimensions scaled exactly 50% to 160x120');
+  if (resizePercentRes.result?.outputPath) { try { fs.unlinkSync(resizePercentRes.result.outputPath); } catch {} }
+
+  // Custom dimension resize: 100x100 lockAspectRatio -> 100x75
+  const resizeDimRes = await imageJobSupervisor.startCompression(
+    testJpg,
+    {
+      quality: 'medium',
+      outputFormat: 'jpg',
+      resize: {
+        enabled: true,
+        mode: 'dimensions',
+        width: 100,
+        height: 100,
+        lockAspectRatio: true
+      },
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(resizeDimRes.success === true, 'Custom dimension resize completed successfully');
+  const probeResizeDim = await probeImageFile(resizeDimRes.result.outputPath);
+  assert(probeResizeDim.metadata?.width === 100 && probeResizeDim.metadata?.height === 75, 'Image dimensions fitted within 100x100 with aspect ratio locked (100x75)');
+  if (resizeDimRes.result?.outputPath) { try { fs.unlinkSync(resizeDimRes.result.outputPath); } catch {} }
+
+  console.log('\n--- 15.4 Custom Target Size (Bounded Iterative Search) ---');
+  const targetSizeRes = await imageJobSupervisor.startCompression(
+    testJpg,
+    {
+      quality: 'custom',
+      outputFormat: 'jpg',
+      targetSizeBytes: 8000,
+      targetPercent: 50,
+      removeMetadata: true,
+      customOutputDir: __dirname
+    }
+  );
+  assert(targetSizeRes.success === true, 'Custom Target Size compression completed within bounded iterations');
+  assert(fs.existsSync(targetSizeRes.result.outputPath), 'Custom Target Size output file exists');
+  if (targetSizeRes.result?.outputPath) { try { fs.unlinkSync(targetSizeRes.result.outputPath); } catch {} }
+
+  console.log('\n--- 15.5 Batch Multi-Image Sequential Processing & Error Resilience ---');
+  const batchImg1 = testJpg;
+  const batchImg2 = testWebp;
+  const batchImg3 = testPngAlpha;
+  const batchImgCorrupt = path.resolve(__dirname, 'batch_corrupt.png');
+  fs.writeFileSync(batchImgCorrupt, 'Not a valid png file buffer');
+
+  const batchResults = [];
+  for (const imgPath of [batchImg1, batchImgCorrupt, batchImg3]) {
+    const probe = await probeImageFile(imgPath);
+    if (!probe.success) {
+      batchResults.push({ success: false, error: probe.error });
+      continue;
+    }
+    const cRes = await imageJobSupervisor.startCompression(
+      imgPath,
+      {
+        quality: 'auto',
+        outputFormat: 'original',
+        removeMetadata: true,
+        customOutputDir: __dirname
+      }
+    );
+    batchResults.push(cRes);
+  }
+
+  assert(batchResults[0].success === true, 'Batch Image Item 1 (JPG) succeeded');
+  assert(batchResults[1].success === false, 'Batch Image Item 2 (Corrupt) safely failed without aborting batch');
+  assert(batchResults[2].success === true, 'Batch Image Item 3 (PNG) succeeded after failure');
+  assert(batchResults.filter(r => r.success).length === 2, 'Batch multi-image summary correctly recorded 2 succeeded, 1 failed');
+
+  for (const r of batchResults) {
+    if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
+      try { fs.unlinkSync(r.result.outputPath); } catch {}
+    }
+  }
+
+  // Cleanup test image files
+  try {
+    fs.unlinkSync(testPngAlpha);
+    fs.unlinkSync(testJpg);
+    fs.unlinkSync(testWebp);
+    fs.unlinkSync(testBmp);
+    fs.unlinkSync(batchImgCorrupt);
   } catch {}
 
   console.log('\n====================================================');

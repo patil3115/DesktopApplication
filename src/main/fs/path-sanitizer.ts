@@ -64,6 +64,65 @@ export function validateInputVideoPath(rawPath: unknown): string {
   return resolved;
 }
 
+const VALID_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set<string>([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.bmp'
+]);
+
+/**
+ * Validates and canonicalizes an input image file path.
+ */
+export function validateInputImagePath(rawPath: unknown): string {
+  const safePath = validateSafePath(rawPath, 'inputImagePath');
+  const resolved = path.resolve(safePath);
+
+  const ext = path.extname(resolved).toLowerCase();
+  if (!VALID_IMAGE_EXTENSIONS.has(ext)) {
+    throw new ValidationError(`Unsupported image extension: ${ext || 'none'}. Supported formats: JPG, PNG, WebP, BMP.`);
+  }
+
+  // Reject drive roots directly, e.g. "C:\"
+  const root = path.parse(resolved).root;
+  if (resolved.toLowerCase() === root.toLowerCase()) {
+    throw new ValidationError('Input path cannot be a drive root.');
+  }
+
+  // Check against sensitive OS directories
+  const lowerResolved = resolved.toLowerCase();
+  for (const sensitive of SENSITIVE_DIRS) {
+    if (lowerResolved.startsWith(sensitive.toLowerCase() + path.sep)) {
+      logger.security('Attempted access to protected system directory', rawPath);
+      throw new ValidationError('Access to operating system directories is denied.');
+    }
+  }
+
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(resolved);
+  } catch (err) {
+    throw new ValidationError('Input file does not exist or is inaccessible.');
+  }
+
+  if (!stats.isFile()) {
+    throw new ValidationError('Input path must be a regular file.');
+  }
+
+  if (stats.size === 0) {
+    throw new ValidationError('Input image file is empty (0 bytes).');
+  }
+
+  // Maximum allowable image file size: 500 MB
+  const MAX_IMAGE_BYTES = 500 * 1024 * 1024;
+  if (stats.size > MAX_IMAGE_BYTES) {
+    throw new ValidationError('Input file exceeds maximum allowed limit of 500 MB.');
+  }
+
+  return resolved;
+}
+
 /**
  * Validates a target output directory path.
  */

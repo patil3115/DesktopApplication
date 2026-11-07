@@ -10,22 +10,22 @@ export interface BatchProgressInfo {
 }
 
 interface ProgressBarProps {
-  progress: CompressionProgress | null;
+  progress?: CompressionProgress | null;
   onCancel: () => void;
   isCancelling: boolean;
   batchInfo?: BatchProgressInfo;
-  mode?: 'compress' | 'audio';
+  mode?: 'compress' | 'audio' | 'image';
 }
 
 export const ProgressBar: React.FC<ProgressBarProps> = ({
-  progress,
+  progress = null,
   onCancel,
   isCancelling,
   batchInfo,
   mode = 'compress'
 }) => {
   const percent = progress?.percent ?? 0;
-  const accentColor = mode === 'audio' ? '#a78bfa' : '#10b981';
+  const accentColor = mode === 'audio' ? '#a78bfa' : mode === 'image' ? '#06b6d4' : '#10b981';
 
   // Overall batch percentage (based on completed count + fraction of current file)
   const overallPercent = batchInfo

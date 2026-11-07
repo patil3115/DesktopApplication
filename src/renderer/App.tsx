@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Video, Music } from 'lucide-react';
+import { Video, Music, Image as ImageIcon } from 'lucide-react';
 import { Header } from './components/Header';
 import { PrivacyBanner } from './components/PrivacyBanner';
 import { DropZone } from './components/DropZone';
@@ -7,10 +7,14 @@ import { VideoInfo } from './components/VideoInfo';
 import { VideoQueue } from './components/VideoQueue';
 import { SettingsPanel } from './components/SettingsPanel';
 import { AudioSettingsPanel } from './components/AudioSettingsPanel';
+import { ImageSettingsPanel } from './components/ImageSettingsPanel';
+import { ImageQueueList } from './components/ImageQueueList';
 import { ProgressBar, BatchProgressInfo } from './components/ProgressBar';
 import { ResultCard } from './components/ResultCard';
 import { AudioResultCard } from './components/AudioResultCard';
 import { BatchResultCard } from './components/BatchResultCard';
+import { ImageResultCard } from './components/ImageResultCard';
+import { BatchImageResultCard } from './components/BatchImageResultCard';
 import { ErrorCard } from './components/ErrorCard';
 import { DesktopRequiredBanner } from './components/DesktopRequiredBanner';
 import {
@@ -21,6 +25,9 @@ import {
   CompressionProgress,
   CompressionResult,
   AudioExtractionResult,
+  ImageCompressionSettings,
+  ImageCompressionResult,
+  ImageQueueItem,
   StructuredError
 } from '../common/types';
 
@@ -28,7 +35,7 @@ export const App: React.FC = () => {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.videoCompressor);
 
   // Active Application Mode
-  const [activeMode, setActiveMode] = useState<'compress' | 'audio'>('compress');
+  const [activeMode, setActiveMode] = useState<'compress' | 'audio' | 'image'>('compress');
 
   // Shared Video File & Queue State
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
@@ -72,6 +79,30 @@ export const App: React.FC = () => {
     customOutputDir: null
   });
 
+  // Image Compression States
+  const [imageQueue, setImageQueue] = useState<ImageQueueItem[]>([]);
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
+  const [isCompressingImage, setIsCompressingImage] = useState(false);
+  const [isCancellingImage, setIsCancellingImage] = useState(false);
+  const [imageProgressInfo, setImageProgressInfo] = useState<BatchProgressInfo | null>(null);
+  const [imageResult, setImageResult] = useState<ImageCompressionResult | null>(null);
+  const [batchImageResult, setBatchImageResult] = useState<{ isCancelled: boolean; items: ImageQueueItem[] } | null>(null);
+  const cancelledImageRef = useRef<boolean>(false);
+  const [imageSettings, setImageSettings] = useState<ImageCompressionSettings>({
+    quality: 'auto',
+    outputFormat: 'original',
+    targetSizeBytes: null,
+    targetPercent: 50,
+    resize: {
+      enabled: false,
+      mode: 'percentage',
+      percentage: 50,
+      lockAspectRatio: true
+    },
+    removeMetadata: true,
+    customOutputDir: null
+  });
+
   // Listen to video compression progress events
   useEffect(() => {
     if (!isDesktop || !window.videoCompressor?.onProgress) return;
@@ -95,12 +126,12 @@ export const App: React.FC = () => {
   }, [isDesktop]);
 
   // Safe mode switching
-  const handleSwitchMode = (newMode: 'compress' | 'audio') => {
+  const handleSwitchMode = (newMode: 'compress' | 'audio' | 'image') => {
     if (newMode === activeMode) return;
 
-    if (isCompressing || isExtractingAudio) {
+    if (isCompressing || isExtractingAudio || isCompressingImage) {
       const confirmSwitch = window.confirm(
-        'A conversion task is currently running in the background. Switching views will not cancel it. Switch now?'
+        'A processing task is currently running in the background. Switching views will not cancel it. Switch now?'
       );
       if (!confirmSwitch) return;
     }
@@ -110,6 +141,7 @@ export const App: React.FC = () => {
     setActiveMode(newMode);
   };
 
+  // Video file selection
   const handleSelectFile = async (isAddMore = false) => {
     setError(null);
     setDuplicateNotice(null);
@@ -589,6 +621,288 @@ export const App: React.FC = () => {
     }
   };
 
+  // Image Selection Handler
+  const handleSelectImages = async (isAddMore = false) => {
+    setError(null);
+    setDuplicateNotice(null);
+    if (!isAddMore) {
+      setImageResult(null);
+      setBatchImageResult(null);
+    }
+
+    if (!isDesktop || !window.videoCompressor) {
+      setError({
+        code: 'ELECTRON_RUNTIME_UNAVAILABLE',
+        userMessage: 'Secure Video Compressor must be launched as the desktop application.'
+      });
+      return;
+    }
+
+    setIsLoadingImages(true);
+
+    try {
+      if (typeof window.videoCompressor.selectImages !== 'function') {
+        setError({
+          code: 'PRELOAD_UNAVAILABLE',
+          userMessage: 'Image selection bridge is not available.'
+        });
+        return;
+      }
+
+      const res = await window.videoCompressor.selectImages();
+      if (res.canceled) {
+        return;
+      }
+
+      const incomingFiles = res.files || [];
+      if (incomingFiles.length === 0) {
+        if (res.error) {
+          setError(res.error);
+        }
+        return;
+      }
+
+      const existingQueue = isAddMore ? imageQueue : [];
+      const newItems: ImageQueueItem[] = [];
+      let duplicatesCount = 0;
+      let firstError: StructuredError | null = null;
+
+      for (const item of incomingFiles) {
+        if (!item.metadata) {
+          if (!firstError && item.error) {
+            firstError = item.error;
+          }
+          continue;
+        }
+
+        const isDuplicate = existingQueue.some(
+          (q) => q.filePath.toLowerCase() === item.filePath.toLowerCase()
+        );
+        if (isDuplicate) {
+          duplicatesCount++;
+          continue;
+        }
+
+        newItems.push({
+          id: item.filePath,
+          filePath: item.filePath,
+          fileName: item.metadata.fileName,
+          fileSizeBytes: item.metadata.fileSizeBytes,
+          formattedSize: item.metadata.formattedSize,
+          format: item.metadata.format,
+          width: item.metadata.width,
+          height: item.metadata.height,
+          hasAlpha: item.metadata.hasAlpha,
+          thumbnailBase64: item.metadata.thumbnailBase64,
+          metadata: item.metadata,
+          status: 'pending'
+        });
+      }
+
+      if (duplicatesCount > 0) {
+        setDuplicateNotice(
+          `${duplicatesCount} duplicate image${duplicatesCount > 1 ? 's were' : ' was'} skipped.`
+        );
+      }
+
+      if (newItems.length === 0 && firstError && !isAddMore) {
+        setError(firstError);
+        return;
+      }
+
+      const finalQueue = isAddMore ? [...existingQueue, ...newItems] : newItems;
+      setImageQueue(finalQueue);
+    } catch {
+      setError({
+        code: 'IPC_UNAVAILABLE',
+        userMessage: 'Communication with desktop host failed during image selection.'
+      });
+    } finally {
+      setIsLoadingImages(false);
+    }
+  };
+
+  const handleRemoveImage = (id: string) => {
+    const nextQueue = imageQueue.filter((item) => item.id !== id);
+    setImageQueue(nextQueue);
+    if (nextQueue.length === 0) {
+      setImageResult(null);
+      setBatchImageResult(null);
+    }
+  };
+
+  const handleClearAllImages = () => {
+    setImageQueue([]);
+    setImageResult(null);
+    setBatchImageResult(null);
+    setImageProgressInfo(null);
+    setError(null);
+  };
+
+  const handleSelectImageOutputDir = async () => {
+    if (!isDesktop || !window.videoCompressor) return;
+    try {
+      const res = await window.videoCompressor.selectOutputDirectory();
+      if (!res.canceled && res.dirPath) {
+        setImageSettings((prev) => ({ ...prev, customOutputDir: res.dirPath }));
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleStartImageCompression = async () => {
+    if (!isDesktop || !window.videoCompressor || imageQueue.length === 0) return;
+
+    setError(null);
+    setImageResult(null);
+    setBatchImageResult(null);
+    setIsCompressingImage(true);
+    setIsCancellingImage(false);
+    cancelledImageRef.current = false;
+
+    // SINGLE IMAGE MODE
+    if (imageQueue.length === 1 && imageQueue[0]) {
+      const singleItem = imageQueue[0];
+      try {
+        let itemSettings = imageSettings;
+        if (imageSettings.quality === 'custom') {
+          const targetPercent = imageSettings.targetPercent ?? 50;
+          const itemTarget = Math.round(singleItem.fileSizeBytes * (targetPercent / 100));
+          itemSettings = {
+            ...imageSettings,
+            targetSizeBytes: itemTarget
+          };
+        }
+
+        const res = await window.videoCompressor.startImageCompression(
+          itemSettings,
+          singleItem.filePath
+        );
+
+        if (res.success && res.result) {
+          setImageResult(res.result);
+        } else if (res.error && res.error.code !== 'CANCELLED') {
+          setError(res.error);
+        }
+      } catch {
+        setError({
+          code: 'COMPRESSION_FAILED',
+          userMessage: 'An unexpected error occurred during image compression.'
+        });
+      } finally {
+        setIsCompressingImage(false);
+        setIsCancellingImage(false);
+      }
+      return;
+    }
+
+    // MULTI-IMAGE BATCH MODE: sequential processing
+    const itemsCopy: ImageQueueItem[] = imageQueue.map((item) => ({
+      ...item,
+      status: 'pending',
+      compressResult: undefined,
+      error: undefined
+    }));
+    setImageQueue(itemsCopy);
+
+    let completedCount = 0;
+    let wasCancelled = false;
+
+    for (let i = 0; i < itemsCopy.length; i++) {
+      if (cancelledImageRef.current) {
+        wasCancelled = true;
+        for (let j = i; j < itemsCopy.length; j++) {
+          const p = itemsCopy[j];
+          if (p) itemsCopy[j] = { ...p, status: 'cancelled' };
+        }
+        break;
+      }
+
+      const currentItem = itemsCopy[i];
+      if (!currentItem) continue;
+
+      itemsCopy[i] = { ...currentItem, status: 'processing' };
+      setImageQueue([...itemsCopy]);
+
+      setImageProgressInfo({
+        currentIndex: i,
+        totalCount: itemsCopy.length,
+        currentFileName: currentItem.fileName,
+        completedCount
+      });
+
+      try {
+        let itemSettings = imageSettings;
+        if (imageSettings.quality === 'custom') {
+          const targetPercent = imageSettings.targetPercent ?? 50;
+          const itemTarget = Math.round(currentItem.fileSizeBytes * (targetPercent / 100));
+          itemSettings = {
+            ...imageSettings,
+            targetSizeBytes: itemTarget
+          };
+        }
+
+        const res = await window.videoCompressor.startImageCompression(
+          itemSettings,
+          currentItem.filePath
+        );
+
+        if (res.success && res.result) {
+          itemsCopy[i] = {
+            ...currentItem,
+            status: 'completed',
+            compressResult: res.result
+          };
+          completedCount++;
+        } else if (res.error) {
+          if (res.error.code === 'CANCELLED' || cancelledImageRef.current) {
+            wasCancelled = true;
+            itemsCopy[i] = { ...currentItem, status: 'cancelled' };
+            for (let j = i + 1; j < itemsCopy.length; j++) {
+              const rem = itemsCopy[j];
+              if (rem) itemsCopy[j] = { ...rem, status: 'cancelled' };
+            }
+            break;
+          } else {
+            itemsCopy[i] = {
+              ...currentItem,
+              status: 'failed',
+              error: res.error
+            };
+          }
+        }
+      } catch (err) {
+        itemsCopy[i] = {
+          ...currentItem,
+          status: 'failed',
+          error: {
+            code: 'COMPRESSION_FAILED',
+            userMessage: err instanceof Error ? err.message : 'Image compression error.'
+          }
+        };
+      }
+
+      setImageQueue([...itemsCopy]);
+    }
+
+    setImageProgressInfo(null);
+    setIsCompressingImage(false);
+    setIsCancellingImage(false);
+    setBatchImageResult({ isCancelled: wasCancelled, items: [...itemsCopy] });
+  };
+
+  const handleCancelImageCompression = async () => {
+    if (!isDesktop || !window.videoCompressor) return;
+    cancelledImageRef.current = true;
+    setIsCancellingImage(true);
+    try {
+      await window.videoCompressor.cancelImageCompression();
+    } catch (err) {
+      console.warn('Cancel image compress error', err);
+    }
+  };
+
   const handleOpenFolder = (targetPath?: string) => {
     if (targetPath && isDesktop && window.videoCompressor) {
       window.videoCompressor.showInFolder(targetPath);
@@ -618,6 +932,15 @@ export const App: React.FC = () => {
           <Music size={18} />
           <span>Video → Audio</span>
         </button>
+
+        <button
+          type="button"
+          className={`mode-tab ${activeMode === 'image' ? 'active active-image' : ''}`}
+          onClick={() => handleSwitchMode('image')}
+        >
+          <ImageIcon size={18} />
+          <span>Image Compression</span>
+        </button>
       </nav>
 
       <PrivacyBanner mode={activeMode} />
@@ -626,97 +949,172 @@ export const App: React.FC = () => {
 
       {error && <ErrorCard error={error} onDismiss={() => setError(null)} />}
 
-      {/* 1. INITIAL STATE: No videos selected */}
-      {isDesktop && !videoMetadata && queue.length === 0 && (
-        <DropZone onBrowse={() => handleSelectFile(false)} isLoading={isLoadingFile} />
-      )}
-
-      {/* 2. SINGLE VIDEO STATE: Exactly 1 video selected (existing behavior preserved) */}
-      {isDesktop && videoMetadata && queue.length <= 1 && (
+      {/* ======================================================== */}
+      {/* VIDEO / AUDIO SECTIONS (activeMode === 'compress' | 'audio') */}
+      {/* ======================================================== */}
+      {activeMode !== 'image' && (
         <>
-          <VideoInfo
-            metadata={videoMetadata}
-            onChangeFile={() => handleSelectFile(false)}
-            onAddMore={() => handleSelectFile(true)}
-            disabled={isCompressing || isExtractingAudio}
-            mode={activeMode}
-            selectedAudioTrackIndex={selectedAudioTrackIndex}
-            onSelectAudioTrack={(idx) => {
-              setSelectedAudioTrackIndex(idx);
-              setAudioSettings((prev) => ({ ...prev, audioStreamIndex: idx }));
-            }}
-          />
+          {/* 1. INITIAL STATE: No videos selected */}
+          {isDesktop && !videoMetadata && queue.length === 0 && (
+            <DropZone onBrowse={() => handleSelectFile(false)} isLoading={isLoadingFile} mode="video" />
+          )}
 
-          {/* MODE 1: Single Video Compression */}
-          {activeMode === 'compress' && (
+          {/* 2. SINGLE VIDEO STATE: Exactly 1 video selected (existing behavior preserved) */}
+          {isDesktop && videoMetadata && queue.length <= 1 && (
             <>
-              {!isCompressing && !compressResult && (
-                <SettingsPanel
-                  settings={compressSettings}
-                  onChange={setCompressSettings}
-                  onCompress={handleStartCompression}
-                  onSelectOutputDir={handleSelectCompressOutputDir}
-                  disabled={isCompressing || isExtractingAudio}
-                  batchCount={1}
-                  videoMetadata={videoMetadata}
-                  queue={queue}
-                />
+              <VideoInfo
+                metadata={videoMetadata}
+                onChangeFile={() => handleSelectFile(false)}
+                onAddMore={() => handleSelectFile(true)}
+                disabled={isCompressing || isExtractingAudio}
+                mode={activeMode}
+                selectedAudioTrackIndex={selectedAudioTrackIndex}
+                onSelectAudioTrack={(idx) => {
+                  setSelectedAudioTrackIndex(idx);
+                  setAudioSettings((prev) => ({ ...prev, audioStreamIndex: idx }));
+                }}
+              />
+
+              {/* MODE 1: Single Video Compression */}
+              {activeMode === 'compress' && (
+                <>
+                  {!isCompressing && !compressResult && (
+                    <SettingsPanel
+                      settings={compressSettings}
+                      onChange={setCompressSettings}
+                      onCompress={handleStartCompression}
+                      onSelectOutputDir={handleSelectCompressOutputDir}
+                      disabled={isCompressing || isExtractingAudio}
+                      batchCount={1}
+                      videoMetadata={videoMetadata}
+                      queue={queue}
+                    />
+                  )}
+
+                  {isCompressing && (
+                    <ProgressBar
+                      progress={compressProgress}
+                      onCancel={handleCancelCompression}
+                      isCancelling={isCancellingCompress}
+                      mode="compress"
+                    />
+                  )}
+
+                  {compressResult && !isCompressing && (
+                    <ResultCard
+                      result={compressResult}
+                      onOpenFolder={() => handleOpenFolder(compressResult.outputPath)}
+                      onReset={() => {
+                        setCompressResult(null);
+                        setCompressProgress(null);
+                      }}
+                    />
+                  )}
+                </>
               )}
 
-              {isCompressing && (
-                <ProgressBar
-                  progress={compressProgress}
-                  onCancel={handleCancelCompression}
-                  isCancelling={isCancellingCompress}
-                  mode="compress"
-                />
-              )}
+              {/* MODE 2: Single Video -> Audio Extractor */}
+              {activeMode === 'audio' && (
+                <>
+                  {!isExtractingAudio && !audioResult && (
+                    <AudioSettingsPanel
+                      settings={audioSettings}
+                      onChange={setAudioSettings}
+                      onExtract={handleStartAudioExtraction}
+                      onSelectOutputDir={handleSelectAudioOutputDir}
+                      disabled={isExtractingAudio || isCompressing}
+                      selectedStream={videoMetadata.audioStreams[selectedAudioTrackIndex]}
+                      hasAudio={videoMetadata.hasAudio}
+                    />
+                  )}
 
-              {compressResult && !isCompressing && (
-                <ResultCard
-                  result={compressResult}
-                  onOpenFolder={() => handleOpenFolder(compressResult.outputPath)}
-                  onReset={() => {
-                    setCompressResult(null);
-                    setCompressProgress(null);
-                  }}
-                />
+                  {isExtractingAudio && (
+                    <ProgressBar
+                      progress={audioProgress}
+                      onCancel={handleCancelAudioExtraction}
+                      isCancelling={isCancellingAudio}
+                      mode="audio"
+                    />
+                  )}
+
+                  {audioResult && !isExtractingAudio && (
+                    <AudioResultCard
+                      result={audioResult}
+                      onOpenFolder={() => handleOpenFolder(audioResult.outputPath)}
+                      onReset={() => {
+                        setAudioResult(null);
+                        setAudioProgress(null);
+                      }}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
 
-          {/* MODE 2: Single Video -> Audio Extractor */}
-          {activeMode === 'audio' && (
+          {/* 3. MULTI-VIDEO BATCH STATE: 2 or more videos selected */}
+          {isDesktop && queue.length > 1 && (
             <>
-              {!isExtractingAudio && !audioResult && (
-                <AudioSettingsPanel
-                  settings={audioSettings}
-                  onChange={setAudioSettings}
-                  onExtract={handleStartAudioExtraction}
-                  onSelectOutputDir={handleSelectAudioOutputDir}
-                  disabled={isExtractingAudio || isCompressing}
-                  selectedStream={videoMetadata.audioStreams[selectedAudioTrackIndex]}
-                  hasAudio={videoMetadata.hasAudio}
-                />
+              {/* Queue and Settings (when not actively compressing/extracting and no final result yet) */}
+              {!isCompressing && !isExtractingAudio && !batchResult && (
+                <>
+                  <VideoQueue
+                    items={queue}
+                    onAddMore={() => handleSelectFile(true)}
+                    onClearAll={handleClearAll}
+                    onRemoveItem={handleRemoveItem}
+                    disabled={isCompressing || isExtractingAudio}
+                    mode={activeMode}
+                    duplicateNotice={duplicateNotice}
+                    onDismissDuplicateNotice={() => setDuplicateNotice(null)}
+                  />
+
+                  {activeMode === 'compress' && (
+                    <SettingsPanel
+                      settings={compressSettings}
+                      onChange={setCompressSettings}
+                      onCompress={handleStartCompression}
+                      onSelectOutputDir={handleSelectCompressOutputDir}
+                      disabled={isCompressing || isExtractingAudio}
+                      batchCount={queue.length}
+                      videoMetadata={videoMetadata}
+                      queue={queue}
+                    />
+                  )}
+
+                  {activeMode === 'audio' && (
+                    <AudioSettingsPanel
+                      settings={audioSettings}
+                      onChange={setAudioSettings}
+                      onExtract={handleStartAudioExtraction}
+                      onSelectOutputDir={handleSelectAudioOutputDir}
+                      disabled={isExtractingAudio || isCompressing}
+                      hasAudio={queue.some((q) => q.hasAudio)}
+                      batchCount={queue.length}
+                    />
+                  )}
+                </>
               )}
 
-              {isExtractingAudio && (
+              {/* In-Flight Batch Progress */}
+              {(isCompressing || isExtractingAudio) && (
                 <ProgressBar
-                  progress={audioProgress}
-                  onCancel={handleCancelAudioExtraction}
-                  isCancelling={isCancellingAudio}
-                  mode="audio"
+                  progress={isCompressing ? compressProgress : audioProgress}
+                  onCancel={isCompressing ? handleCancelCompression : handleCancelAudioExtraction}
+                  isCancelling={isCompressing ? isCancellingCompress : isCancellingAudio}
+                  batchInfo={batchProgressInfo ?? undefined}
+                  mode={activeMode}
                 />
               )}
 
-              {audioResult && !isExtractingAudio && (
-                <AudioResultCard
-                  result={audioResult}
-                  onOpenFolder={() => handleOpenFolder(audioResult.outputPath)}
-                  onReset={() => {
-                    setAudioResult(null);
-                    setAudioProgress(null);
-                  }}
+              {/* Batch Completion Summary Card */}
+              {batchResult && !isCompressing && !isExtractingAudio && (
+                <BatchResultCard
+                  items={batchResult.items}
+                  isCancelled={batchResult.isCancelled}
+                  mode={activeMode}
+                  onOpenFolder={handleOpenFolder}
+                  onReset={handleClearAll}
                 />
               )}
             </>
@@ -724,70 +1122,76 @@ export const App: React.FC = () => {
         </>
       )}
 
-      {/* 3. MULTI-VIDEO BATCH STATE: 2 or more videos selected */}
-      {isDesktop && queue.length > 1 && (
+      {/* ======================================================== */}
+      {/* IMAGE COMPRESSION SECTION (activeMode === 'image') */}
+      {/* ======================================================== */}
+      {activeMode === 'image' && (
         <>
-          {/* Queue and Settings (when not actively compressing/extracting and no final result yet) */}
-          {!isCompressing && !isExtractingAudio && !batchResult && (
-            <>
-              <VideoQueue
-                items={queue}
-                onAddMore={() => handleSelectFile(true)}
-                onClearAll={handleClearAll}
-                onRemoveItem={handleRemoveItem}
-                disabled={isCompressing || isExtractingAudio}
-                mode={activeMode}
-                duplicateNotice={duplicateNotice}
-                onDismissDuplicateNotice={() => setDuplicateNotice(null)}
-              />
+          {/* 1. INITIAL STATE: No images selected */}
+          {isDesktop && imageQueue.length === 0 && (
+            <DropZone onBrowse={() => handleSelectImages(false)} isLoading={isLoadingImages} mode="image" />
+          )}
 
-              {activeMode === 'compress' && (
-                <SettingsPanel
-                  settings={compressSettings}
-                  onChange={setCompressSettings}
-                  onCompress={handleStartCompression}
-                  onSelectOutputDir={handleSelectCompressOutputDir}
-                  disabled={isCompressing || isExtractingAudio}
-                  batchCount={queue.length}
-                  videoMetadata={videoMetadata}
-                  queue={queue}
+          {/* 2. IMAGES SELECTED STATE: 1 or more images in queue */}
+          {isDesktop && imageQueue.length > 0 && (
+            <>
+              {/* Image Queue and Settings (when not actively compressing and no final result yet) */}
+              {!isCompressingImage && !imageResult && !batchImageResult && (
+                <>
+                  <ImageQueueList
+                    items={imageQueue}
+                    onAddMore={() => handleSelectImages(true)}
+                    onClearAll={handleClearAllImages}
+                    onRemoveItem={handleRemoveImage}
+                    disabled={isCompressingImage}
+                    duplicateNotice={duplicateNotice}
+                    onDismissDuplicateNotice={() => setDuplicateNotice(null)}
+                  />
+
+                  <ImageSettingsPanel
+                    settings={imageSettings}
+                    onChange={setImageSettings}
+                    onCompress={handleStartImageCompression}
+                    onSelectOutputDir={handleSelectImageOutputDir}
+                    disabled={isCompressingImage}
+                    imageQueue={imageQueue}
+                  />
+                </>
+              )}
+
+              {/* In-Flight Image Progress */}
+              {isCompressingImage && (
+                <ProgressBar
+                  progress={null}
+                  onCancel={handleCancelImageCompression}
+                  isCancelling={isCancellingImage}
+                  batchInfo={imageProgressInfo ?? undefined}
+                  mode="image"
                 />
               )}
 
-              {activeMode === 'audio' && (
-                <AudioSettingsPanel
-                  settings={audioSettings}
-                  onChange={setAudioSettings}
-                  onExtract={handleStartAudioExtraction}
-                  onSelectOutputDir={handleSelectAudioOutputDir}
-                  disabled={isExtractingAudio || isCompressing}
-                  hasAudio={queue.some((q) => q.hasAudio)}
-                  batchCount={queue.length}
+              {/* Single Image Result Card */}
+              {imageResult && !isCompressingImage && (
+                <ImageResultCard
+                  result={imageResult}
+                  onOpenFolder={() => handleOpenFolder(imageResult.outputPath)}
+                  onReset={() => {
+                    setImageResult(null);
+                    setImageProgressInfo(null);
+                  }}
+                />
+              )}
+
+              {/* Batch Image Result Card */}
+              {batchImageResult && !isCompressingImage && (
+                <BatchImageResultCard
+                  items={batchImageResult.items}
+                  isCancelled={batchImageResult.isCancelled}
+                  onOpenFolder={handleOpenFolder}
+                  onReset={handleClearAllImages}
                 />
               )}
             </>
-          )}
-
-          {/* In-Flight Batch Progress */}
-          {(isCompressing || isExtractingAudio) && (
-            <ProgressBar
-              progress={isCompressing ? compressProgress : audioProgress}
-              onCancel={isCompressing ? handleCancelCompression : handleCancelAudioExtraction}
-              isCancelling={isCompressing ? isCancellingCompress : isCancellingAudio}
-              batchInfo={batchProgressInfo ?? undefined}
-              mode={activeMode}
-            />
-          )}
-
-          {/* Batch Completion Summary Card */}
-          {batchResult && !isCompressing && !isExtractingAudio && (
-            <BatchResultCard
-              items={batchResult.items}
-              isCancelled={batchResult.isCancelled}
-              mode={activeMode}
-              onOpenFolder={handleOpenFolder}
-              onReset={handleClearAll}
-            />
           )}
         </>
       )}

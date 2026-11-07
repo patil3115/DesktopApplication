@@ -172,7 +172,84 @@ export interface VideoCompressorAPI {
   cancelCompression(): Promise<{ success: boolean }>;
   startAudioExtraction(settings: AudioExtractionSettings, targetFilePath?: string): Promise<{ success: boolean; result?: AudioExtractionResult; error?: StructuredError }>;
   cancelAudioExtraction(): Promise<{ success: boolean }>;
+  selectImages(): Promise<ImageSelectionResult>;
+  startImageCompression(settings: ImageCompressionSettings, targetFilePath: string): Promise<{ success: boolean; result?: ImageCompressionResult; error?: StructuredError }>;
+  cancelImageCompression(): Promise<{ success: boolean }>;
   showInFolder(filePath: string): Promise<void>;
   onProgress(callback: (progress: CompressionProgress) => void): () => void;
   onAudioProgress(callback: (progress: CompressionProgress) => void): () => void;
+}
+
+export type ImageInputFormat = 'jpg' | 'jpeg' | 'png' | 'webp' | 'bmp';
+export type ImageOutputFormat = 'original' | 'jpg' | 'png' | 'webp';
+
+export interface ImageMetadata {
+  readonly fileName: string;
+  readonly filePath: string;
+  readonly fileSizeBytes: number;
+  readonly formattedSize: string;
+  readonly format: ImageInputFormat;
+  readonly width: number;
+  readonly height: number;
+  readonly aspectRatio: number;
+  readonly hasAlpha: boolean;
+  readonly thumbnailDataUrl?: string;
+  readonly thumbnailBase64?: string;
+}
+
+export interface ImageResizeSettings {
+  readonly enabled: boolean;
+  readonly mode: 'percentage' | 'dimensions';
+  readonly percentage?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly lockAspectRatio: boolean;
+}
+
+export interface ImageCompressionSettings {
+  readonly quality: QualityPreset;
+  readonly outputFormat: ImageOutputFormat;
+  readonly targetSizeBytes?: number | null;
+  readonly targetPercent?: number | null;
+  readonly resize: ImageResizeSettings;
+  readonly removeMetadata: boolean;
+  readonly customOutputDir?: string | null;
+}
+
+export interface ImageCompressionResult {
+  readonly success: boolean;
+  readonly outputPath: string;
+  readonly outputFileName: string;
+  readonly originalSizeBytes: number;
+  readonly compressedSizeBytes: number;
+  readonly reductionPercentage: number;
+  readonly outputFormat: string;
+  readonly format?: string;
+  readonly width: number;
+  readonly height: number;
+  readonly targetSizeBytes?: number;
+  readonly note?: string;
+}
+
+export interface ImageQueueItem {
+  readonly id: string;
+  readonly filePath: string;
+  readonly fileName: string;
+  readonly fileSizeBytes: number;
+  readonly formattedSize: string;
+  readonly format: ImageInputFormat;
+  readonly width: number;
+  readonly height: number;
+  readonly hasAlpha: boolean;
+  readonly thumbnailDataUrl?: string;
+  readonly thumbnailBase64?: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  result?: ImageCompressionResult;
+  error?: StructuredError;
+}
+
+export interface ImageSelectionResult {
+  readonly canceled: boolean;
+  readonly files?: ImageQueueItem[];
+  readonly error?: StructuredError;
 }

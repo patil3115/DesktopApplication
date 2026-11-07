@@ -1,15 +1,31 @@
 import { ipcMain, dialog, shell, BrowserWindow } from 'electron';
+import * as path from 'path';
 import { IPC_CHANNELS } from '../common/ipc-channels';
 import {
   validateCompressionSettings,
   validateAudioExtractionSettings,
+  validateImageCompressionSettings,
   validateSafePath
 } from '../common/validators';
-import { validateInputVideoPath, validateOutputDirectoryPath } from './fs/path-sanitizer';
+import {
+  validateInputVideoPath,
+  validateInputImagePath,
+  validateOutputDirectoryPath
+} from './fs/path-sanitizer';
 import { probeVideoFile } from './ffmpeg/probe';
 import { jobSupervisor } from './ffmpeg/compressor';
 import { audioExtractorSupervisor } from './ffmpeg/audio-extractor';
-import { VideoMetadata, StructuredError, FileSelectionResult, SelectedFileItem } from '../common/types';
+import { probeImageFile } from './image/image-probe';
+import { imageJobSupervisor } from './image/image-compressor';
+import {
+  VideoMetadata,
+  StructuredError,
+  FileSelectionResult,
+  SelectedFileItem,
+  ImageMetadata,
+  ImageQueueItem,
+  ImageSelectionResult
+} from '../common/types';
 import { logger } from './utils/logger';
 
 interface ActiveFileState {
@@ -331,6 +347,176 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // Handler: Cancel audio extraction
   ipcMain.handle(IPC_CHANNELS.CANCEL_AUDIO_EXTRACTION, async () => {
     const wasRunning = await audioExtractorSupervisor.cancel();
+    return { success: wasRunning };
+  });
+
+  // Handler: Select Image Files
+  const activeImages = new Map<string, ImageMetadata>();
+
+  ipcMain.handle(IPC_CHANNELS.SELECT_IMAGES, async (): Promise<ImageSelectionResult> => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Image File(s)',
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          {
+            name: 'Supported Images (JPG, PNG, WebP, BMP)',
+            extensions: ['jpg', 'jpeg', 'png', 'webp', 'bmp']
+          }
+        ]
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true };
+      }
+
+      const items: ImageQueueItem[] = [];
+
+      for (const rawPath of result.filePaths) {
+        if (!rawPath) continue;
+
+        let validatedPath: string;
+        try {
+          validatedPath = validateInputImagePath(rawPath);
+        } catch (valErr) {
+          logger.warn('Image path validation failed for ' + rawPath, valErr);
+          items.push({
+            id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            filePath: rawPath,
+            fileName: path.basename(rawPath),
+            fileSizeBytes: 0,
+            formattedSize: '0 B',
+            format: 'jpg',
+            width: 0,
+            height: 0,
+            hasAlpha: false,
+            status: 'failed',
+            error: {
+              code: 'FILE_VALIDATION_FAILED',
+              userMessage: valErr instanceof Error ? valErr.message : 'Invalid or inaccessible image file.'
+            }
+          });
+          continue;
+        }
+
+        const probeResult = await probeImageFile(validatedPath);
+        if (!probeResult.success || !probeResult.metadata) {
+          items.push({
+            id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            filePath: validatedPath,
+            fileName: path.basename(validatedPath),
+            fileSizeBytes: 0,
+            formattedSize: '0 B',
+            format: 'jpg',
+            width: 0,
+            height: 0,
+            hasAlpha: false,
+            status: 'failed',
+            error: probeResult.error || {
+              code: 'PROBE_FAILED',
+              userMessage: 'Image probe failed.'
+            }
+          });
+        } else {
+          activeImages.set(validatedPath, probeResult.metadata);
+          items.push({
+            id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+            filePath: validatedPath,
+            fileName: probeResult.metadata.fileName,
+            fileSizeBytes: probeResult.metadata.fileSizeBytes,
+            formattedSize: probeResult.metadata.formattedSize,
+            format: probeResult.metadata.format,
+            width: probeResult.metadata.width,
+            height: probeResult.metadata.height,
+            hasAlpha: probeResult.metadata.hasAlpha,
+            thumbnailDataUrl: probeResult.metadata.thumbnailDataUrl,
+            status: 'pending'
+          });
+        }
+      }
+
+      if (items.length === 0) {
+        return { canceled: true };
+      }
+
+      return {
+        canceled: false,
+        files: items
+      };
+    } catch (err) {
+      logger.error('Failed to open native image file dialog', err);
+      return {
+        canceled: false,
+        error: {
+          code: 'FILE_DIALOG_FAILED',
+          userMessage: 'The system file dialog could not be opened.'
+        }
+      };
+    }
+  });
+
+  // Handler: Start Image Compression
+  ipcMain.handle(
+    IPC_CHANNELS.START_IMAGE_COMPRESSION,
+    async (_event, rawSettings: unknown, rawTargetPath: unknown) => {
+      try {
+        if (typeof rawTargetPath !== 'string' || !rawTargetPath.trim()) {
+          return {
+            success: false,
+            error: {
+              code: 'INVALID_INPUT',
+              userMessage: 'Target image path is missing.'
+            }
+          };
+        }
+
+        const validatedPath = validateInputImagePath(rawTargetPath);
+        let metadata = activeImages.get(validatedPath);
+
+        if (!metadata) {
+          const probeResult = await probeImageFile(validatedPath);
+          if (!probeResult.success || !probeResult.metadata) {
+            return {
+              success: false,
+              error: probeResult.error || {
+                code: 'PROBE_FAILED',
+                userMessage: 'Could not probe image metadata.'
+              }
+            };
+          }
+          metadata = probeResult.metadata;
+          activeImages.set(validatedPath, metadata);
+        }
+
+        if (jobSupervisor.isRunning() || audioExtractorSupervisor.isRunning()) {
+          return {
+            success: false,
+            error: {
+              code: 'ALREADY_RUNNING',
+              userMessage: 'Another media processing task is currently active.'
+            }
+          };
+        }
+
+        const settings = validateImageCompressionSettings(rawSettings);
+        const result = await imageJobSupervisor.compressImage(validatedPath, metadata, settings);
+        return result;
+      } catch (err) {
+        logger.error('Unhandled image compression error', err);
+        return {
+          success: false,
+          error: {
+            code: 'COMPRESSION_FAILED',
+            userMessage: err instanceof Error ? err.message : 'An unexpected image compression error occurred.'
+          }
+        };
+      }
+    }
+  );
+
+  // Handler: Cancel Image Compression
+  ipcMain.handle(IPC_CHANNELS.CANCEL_IMAGE_COMPRESSION, async () => {
+    const wasRunning = await imageJobSupervisor.cancel();
     return { success: wasRunning };
   });
 

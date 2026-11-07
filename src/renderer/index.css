@@ -348,6 +348,16 @@ input, select {
   cursor: not-allowed;
 }
 
+.btn-compress-image {
+  background: linear-gradient(135deg, #0891b2, #06b6d4);
+  box-shadow: 0 4px 16px rgba(6, 182, 212, 0.25);
+}
+
+.btn-compress-image:hover:not(:disabled) {
+  background: linear-gradient(135deg, #06b6d4, #22d3ee);
+  box-shadow: 0 6px 20px rgba(6, 182, 212, 0.35);
+}
+
 /* Progress Container */
 .progress-card {
   display: flex;
@@ -579,6 +589,12 @@ input, select {
   color: #a78bfa;
   border-color: rgba(167, 139, 250, 0.35);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 12px rgba(167, 139, 250, 0.15);
+}
+
+.mode-tab.active-image {
+  color: var(--accent-cyan);
+  border-color: rgba(6, 182, 212, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 12px var(--accent-cyan-dim);
 }
 
 /* Stream Copy Optimization Badge */

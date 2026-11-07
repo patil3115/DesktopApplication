@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
-import { UploadCloud, Film } from 'lucide-react';
+import { UploadCloud, Film, Image as ImageIcon } from 'lucide-react';
 
 interface DropZoneProps {
   onBrowse: () => void;
   isLoading: boolean;
+  mode?: 'video' | 'image';
 }
 
-export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading }) => {
+export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading, mode = 'video' }) => {
   const [isDragOver, setIsDragOver] = useState(false);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -25,9 +26,10 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading }) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
-    // Trigger file browse directly or handle dropped files safely
     onBrowse();
   };
+
+  const isImage = mode === 'image';
 
   return (
     <div
@@ -40,13 +42,23 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading }) => {
       tabIndex={0}
     >
       <div className="dropzone-icon">
-        {isDragOver ? <Film size={48} /> : <UploadCloud size={48} />}
+        {isDragOver ? (
+          isImage ? <ImageIcon size={48} /> : <Film size={48} />
+        ) : isImage ? (
+          <ImageIcon size={48} />
+        ) : (
+          <UploadCloud size={48} />
+        )}
       </div>
       <div>
         <p className="dropzone-text-primary">
-          {isLoading ? 'Inspecting video metadata...' : 'Drag & Drop Video(s) Here'}
+          {isLoading
+            ? (isImage ? 'Inspecting image metadata...' : 'Inspecting video metadata...')
+            : (isImage ? 'Drag & Drop Image(s) Here' : 'Drag & Drop Video(s) Here')}
         </p>
-        <p className="dropzone-text-secondary">Supported: MP4, MKV, MOV, AVI, WEBM, M4V</p>
+        <p className="dropzone-text-secondary">
+          {isImage ? 'Supported: JPG, JPEG, PNG, WebP, BMP' : 'Supported: MP4, MKV, MOV, AVI, WEBM, M4V'}
+        </p>
       </div>
       <button
         type="button"
@@ -57,7 +69,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading }) => {
         }}
         disabled={isLoading}
       >
-        Browse Videos
+        {isLoading ? 'Reading File...' : isImage ? 'Browse Images' : 'Browse Videos'}
       </button>
     </div>
   );
