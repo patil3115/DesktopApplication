@@ -368,10 +368,17 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       });
 
       logger.info(`[ImageSelect] Native dialog result received. Canceled: ${result.canceled}, count: ${result.filePaths ? result.filePaths.length : 0}`);
+      logger.info('[IMAGE] File picker completed.');
+      console.log('[IMAGE] File picker completed.');
 
       if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+        logger.info('[IMAGE] Selected files: 0');
+        console.log('[IMAGE] Selected files: 0');
         return { canceled: true };
       }
+
+      logger.info(`[IMAGE] Selected files: ${result.filePaths.length}`);
+      console.log(`[IMAGE] Selected files: ${result.filePaths.length}`);
 
       const items: ImageQueueItem[] = [];
 
@@ -445,9 +452,13 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
       logger.info(`[ImageSelect] Finished processing selection. Total items: ${items.length}, Probed successfully: ${items.filter(i => i.status === 'pending').length}`);
 
       if (items.length === 0) {
+        logger.info('[IMAGE] Sending result through IPC (canceled: true).');
+        console.log('[IMAGE] Sending result through IPC (canceled: true).');
         return { canceled: true };
       }
 
+      logger.info('[IMAGE] Sending result through IPC.');
+      console.log('[IMAGE] Sending result through IPC.');
       return {
         canceled: false,
         files: items

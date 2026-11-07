@@ -650,7 +650,17 @@ export const App: React.FC = () => {
       }
 
       console.log('[ImageSelect] Invoking native image picker (isAddMore:', isAddMore, ')...');
-      const res = await window.videoCompressor.selectImages();
+      
+      const timeoutPromise = new Promise<ImageSelectionResult>((_, reject) => {
+        setTimeout(() => reject(new Error('Image selection request timed out after 30 seconds.')), 30000);
+      });
+
+      const res = await Promise.race([
+        window.videoCompressor.selectImages(),
+        timeoutPromise
+      ]);
+
+      console.log('[IMAGE] IPC response received.');
       console.log('[ImageSelect] Native image picker returned:', res);
 
       if (res.canceled) {
@@ -668,6 +678,7 @@ export const App: React.FC = () => {
         return;
       }
 
+      console.log('[IMAGE] Updating React queue.');
       const existingQueue = isAddMore ? imageQueue : [];
       const newItems: ImageQueueItem[] = [];
       let duplicatesCount = 0;
@@ -733,6 +744,8 @@ export const App: React.FC = () => {
           },
           status: 'pending'
         });
+
+        console.log(`[IMAGE] Image successfully added: ${fileName}`);
       }
 
       console.log('[ImageSelect] Files successfully prepared for queue:', newItems.length, 'Duplicates skipped:', duplicatesCount);
