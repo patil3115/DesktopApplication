@@ -129,36 +129,42 @@ export const ImageQueueList: React.FC<ImageQueueListProps> = ({
               </span>
 
               {/* Local Safe Thumbnail */}
-              {item.thumbnailDataUrl ? (
-                <img
-                  src={item.thumbnailDataUrl}
-                  alt={item.fileName}
-                  style={{
-                    width: 36,
-                    height: 36,
-                    objectFit: 'cover',
-                    borderRadius: 4,
-                    border: '1px solid var(--border-subtle)',
-                    flexShrink: 0
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: 4,
-                    background: 'var(--bg-surface)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'var(--text-muted)',
-                    flexShrink: 0
-                  }}
-                >
-                  <ImageIcon size={18} />
-                </div>
-              )}
+              {(() => {
+                const thumb = item.thumbnailDataUrl || item.thumbnailBase64 || item.metadata?.thumbnailDataUrl || item.metadata?.thumbnailBase64;
+                return thumb ? (
+                  <img
+                    src={thumb}
+                    alt={item.fileName}
+                    style={{
+                      width: 36,
+                      height: 36,
+                      objectFit: 'cover',
+                      borderRadius: 4,
+                      border: '1px solid var(--border-subtle)',
+                      flexShrink: 0
+                    }}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 4,
+                      background: 'var(--bg-surface)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--text-muted)',
+                      flexShrink: 0
+                    }}
+                  >
+                    <ImageIcon size={18} />
+                  </div>
+                );
+              })()}
 
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div
@@ -231,3 +237,4 @@ export const ImageQueueList: React.FC<ImageQueueListProps> = ({
     </div>
   );
 };
+

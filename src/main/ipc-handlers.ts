@@ -355,6 +355,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle(IPC_CHANNELS.SELECT_IMAGES, async (): Promise<ImageSelectionResult> => {
     try {
+      logger.info('[ImageSelect] Native file dialog opened');
       const result = await dialog.showOpenDialog(mainWindow, {
         title: 'Select Image File(s)',
         properties: ['openFile', 'multiSelections'],
@@ -366,7 +367,9 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         ]
       });
 
-      if (result.canceled || result.filePaths.length === 0) {
+      logger.info(`[ImageSelect] Native dialog result received. Canceled: ${result.canceled}, count: ${result.filePaths ? result.filePaths.length : 0}`);
+
+      if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
         return { canceled: true };
       }
 
@@ -379,7 +382,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         try {
           validatedPath = validateInputImagePath(rawPath);
         } catch (valErr) {
-          logger.warn('Image path validation failed for ' + rawPath, valErr);
+          logger.warn('[ImageSelect] Image path validation failed for ' + rawPath, valErr);
           items.push({
             id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
             filePath: rawPath,
@@ -401,6 +404,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
 
         const probeResult = await probeImageFile(validatedPath);
         if (!probeResult.success || !probeResult.metadata) {
+          logger.warn('[ImageSelect] Probe failed for ' + validatedPath, probeResult.error);
           items.push({
             id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
             filePath: validatedPath,
@@ -419,6 +423,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
           });
         } else {
           activeImages.set(validatedPath, probeResult.metadata);
+          const thumb = probeResult.metadata.thumbnailDataUrl || probeResult.metadata.thumbnailBase64;
           items.push({
             id: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
             filePath: validatedPath,
@@ -429,11 +434,15 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
             width: probeResult.metadata.width,
             height: probeResult.metadata.height,
             hasAlpha: probeResult.metadata.hasAlpha,
-            thumbnailDataUrl: probeResult.metadata.thumbnailDataUrl,
+            thumbnailDataUrl: thumb,
+            thumbnailBase64: thumb,
+            metadata: probeResult.metadata,
             status: 'pending'
           });
         }
       }
+
+      logger.info(`[ImageSelect] Finished processing selection. Total items: ${items.length}, Probed successfully: ${items.filter(i => i.status === 'pending').length}`);
 
       if (items.length === 0) {
         return { canceled: true };
@@ -444,7 +453,7 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
         files: items
       };
     } catch (err) {
-      logger.error('Failed to open native image file dialog', err);
+      logger.error('[ImageSelect] Failed to open native image file dialog', err);
       return {
         canceled: false,
         error: {

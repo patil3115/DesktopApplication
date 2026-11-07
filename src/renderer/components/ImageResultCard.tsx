@@ -86,3 +86,4 @@ export const ImageResultCard: React.FC<ImageResultCardProps> = ({ result, onOpen
     </div>
   );
 };
+

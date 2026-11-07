@@ -21,6 +21,7 @@ interface ImageSettingsPanelProps {
   batchCount?: number;
   selectedImage?: ImageQueueItem | null;
   queue?: ImageQueueItem[];
+  imageQueue?: ImageQueueItem[];
 }
 
 export const ImageSettingsPanel: React.FC<ImageSettingsPanelProps> = ({
@@ -31,12 +32,15 @@ export const ImageSettingsPanel: React.FC<ImageSettingsPanelProps> = ({
   disabled,
   batchCount = 0,
   selectedImage,
-  queue = []
+  queue = [],
+  imageQueue
 }) => {
-  const isBatch = batchCount > 1;
+  const effectiveQueue = (queue && queue.length > 0) ? queue : (imageQueue || []);
+  const effectiveBatchCount = batchCount > 0 ? batchCount : effectiveQueue.length;
+  const isBatch = effectiveBatchCount > 1;
 
   // Single-file calculations for Custom Target Size mode
-  const currentItem = selectedImage || queue[0];
+  const currentItem = selectedImage || effectiveQueue[0];
   const singleOriginalBytes = currentItem?.fileSizeBytes || 0;
   const singleWidth = currentItem?.width || 1920;
   const singleHeight = currentItem?.height || 1080;
@@ -606,3 +610,4 @@ export const ImageSettingsPanel: React.FC<ImageSettingsPanelProps> = ({
     </div>
   );
 };
+

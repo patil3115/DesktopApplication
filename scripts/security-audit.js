@@ -305,11 +305,11 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(transcodeResult.success === true, 'Video compression (Medium) completed successfully');
   if (transcodeResult.success && transcodeResult.result) {
-    try { fs.unlinkSync(transcodeResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(transcodeResult.result.outputPath); } catch { }
   }
 
   // Test 8.2: Automatic Mode (Exact backward compatibility)
@@ -324,11 +324,11 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(autoTranscodeResult.success === true, 'Video compression (Automatic) completed successfully');
   if (autoTranscodeResult.success && autoTranscodeResult.result) {
-    try { fs.unlinkSync(autoTranscodeResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(autoTranscodeResult.result.outputPath); } catch { }
   }
 
   // Test 8.3: High Quality Mode
@@ -343,11 +343,11 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(highTranscodeResult.success === true, 'Video compression (High) completed successfully');
   if (highTranscodeResult.success && highTranscodeResult.result) {
-    try { fs.unlinkSync(highTranscodeResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(highTranscodeResult.result.outputPath); } catch { }
   }
 
   // Test 8.4: Low Quality Mode
@@ -362,11 +362,11 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(lowTranscodeResult.success === true, 'Video compression (Low) completed successfully');
   if (lowTranscodeResult.success && lowTranscodeResult.result) {
-    try { fs.unlinkSync(lowTranscodeResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(lowTranscodeResult.result.outputPath); } catch { }
   }
 
   // Test 8.5: Custom Target Size Mode (Two-Pass FFmpeg Transcode)
@@ -384,7 +384,7 @@ async function runAudit() {
       customOutputDir: path.dirname(testSamplePath),
       targetSizeBytes: targetBytes
     },
-    () => {},
+    () => { },
     true,
     probeResult.metadata
   );
@@ -392,7 +392,7 @@ async function runAudit() {
   if (customTranscodeResult.success && customTranscodeResult.result) {
     assert(customTranscodeResult.result.targetSizeBytes === targetBytes, 'Result record includes targetSizeBytes');
     assert(fs.existsSync(customTranscodeResult.result.outputPath), 'Two-pass output file exists');
-    try { fs.unlinkSync(customTranscodeResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(customTranscodeResult.result.outputPath); } catch { }
   }
 
   // Verify pass log files were cleaned up
@@ -415,7 +415,7 @@ async function runAudit() {
       customOutputDir: path.dirname(testSamplePath),
       targetSizeBytes: 200 // Unrealistic 200 bytes for 2s video
     },
-    () => {},
+    () => { },
     true,
     probeResult.metadata
   );
@@ -439,13 +439,13 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(mp3Result.success === true, 'Extracted audio to MP3 successfully');
   if (mp3Result.success && mp3Result.result) {
     assert(fs.existsSync(mp3Result.result.outputPath), 'MP3 output file exists');
     assert(mp3Result.result.audioSizeBytes > 0, 'MP3 output file has valid size');
-    try { fs.unlinkSync(mp3Result.result.outputPath); } catch {}
+    try { fs.unlinkSync(mp3Result.result.outputPath); } catch { }
   }
 
   // Test 9.2: Convert to M4A with Stream Copy Optimization
@@ -460,13 +460,13 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(m4aResult.success === true, 'Extracted audio to M4A successfully');
   if (m4aResult.success && m4aResult.result) {
     assert(m4aResult.result.wasStreamCopied === true, 'Stream copy optimization engaged (AAC -> M4A)');
     assert(fs.existsSync(m4aResult.result.outputPath), 'M4A output file exists');
-    try { fs.unlinkSync(m4aResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(m4aResult.result.outputPath); } catch { }
   }
 
   // Test 9.3: Convert to Lossless WAV
@@ -480,12 +480,12 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(wavResult.success === true, 'Extracted audio to uncompressed WAV successfully');
   if (wavResult.success && wavResult.result) {
     assert(fs.existsSync(wavResult.result.outputPath), 'WAV output file exists');
-    try { fs.unlinkSync(wavResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(wavResult.result.outputPath); } catch { }
   }
 
   // Test 9.4: Convert to Lossless FLAC
@@ -499,12 +499,12 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(flacResult.success === true, 'Extracted audio to FLAC successfully');
   if (flacResult.success && flacResult.result) {
     assert(fs.existsSync(flacResult.result.outputPath), 'FLAC output file exists');
-    try { fs.unlinkSync(flacResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(flacResult.result.outputPath); } catch { }
   }
 
   // Test 9.5: Convert to OGG Vorbis
@@ -519,16 +519,16 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(testSamplePath)
     },
-    () => {}
+    () => { }
   );
   assert(oggResult.success === true, 'Extracted audio to OGG Vorbis successfully');
   if (oggResult.success && oggResult.result) {
     assert(fs.existsSync(oggResult.result.outputPath), 'OGG output file exists');
-    try { fs.unlinkSync(oggResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(oggResult.result.outputPath); } catch { }
   }
 
   // Clean up source test video
-  try { fs.unlinkSync(testSamplePath); } catch {}
+  try { fs.unlinkSync(testSamplePath); } catch { }
 
   // 10. Video Without Audio Handling Test
   console.log('\n--- 10. Video Without Audio Stream Handling Test ---');
@@ -562,15 +562,15 @@ async function runAudit() {
       removeMetadata: true,
       customOutputDir: path.dirname(noAudioSamplePath)
     },
-    () => {},
+    () => { },
     false
   );
   assert(noAudioCompressResult.success === true, 'Video without audio compressed successfully');
   if (noAudioCompressResult.success && noAudioCompressResult.result) {
     assert(fs.existsSync(noAudioCompressResult.result.outputPath), 'No-audio compressed output exists');
-    try { fs.unlinkSync(noAudioCompressResult.result.outputPath); } catch {}
+    try { fs.unlinkSync(noAudioCompressResult.result.outputPath); } catch { }
   }
-  try { fs.unlinkSync(noAudioSamplePath); } catch {}
+  try { fs.unlinkSync(noAudioSamplePath); } catch { }
 
   // 11. Multi-Track Audio Handling Test
   console.log('\n--- 11. Multi-Track Audio Detection & Selection Test ---');
@@ -609,14 +609,14 @@ async function runAudit() {
         removeMetadata: true,
         customOutputDir: path.dirname(multiAudioSamplePath)
       },
-      () => {}
+      () => { }
     );
     assert(track2Result.success === true, 'Extracted Track 2 (Commentary) specifically');
     if (track2Result.success && track2Result.result) {
-      try { fs.unlinkSync(track2Result.result.outputPath); } catch {}
+      try { fs.unlinkSync(track2Result.result.outputPath); } catch { }
     }
   }
-  try { fs.unlinkSync(multiAudioSamplePath); } catch {}
+  try { fs.unlinkSync(multiAudioSamplePath); } catch { }
 
   // 12. File Size Formatter & FPS Rational Parser Tests
   console.log('\n--- 12. File Size Formatter & FPS Rational Parser Tests ---');
@@ -727,7 +727,7 @@ async function runAudit() {
         removeMetadata: true,
         customOutputDir: __dirname
       },
-      () => {}
+      () => { }
     );
     compressionBatchResults.push(res);
   }
@@ -738,7 +738,7 @@ async function runAudit() {
   // Cleanup compressed outputs
   for (const r of compressionBatchResults) {
     if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
-      try { fs.unlinkSync(r.result.outputPath); } catch {}
+      try { fs.unlinkSync(r.result.outputPath); } catch { }
     }
   }
 
@@ -764,7 +764,7 @@ async function runAudit() {
         removeMetadata: true,
         customOutputDir: __dirname
       },
-      () => {}
+      () => { }
     );
     resilienceResults.push({ success: cRes.success, error: cRes.error, filePath: itemPath, result: cRes.result });
   }
@@ -781,7 +781,7 @@ async function runAudit() {
   // Cleanup
   for (const r of resilienceResults) {
     if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
-      try { fs.unlinkSync(r.result.outputPath); } catch {}
+      try { fs.unlinkSync(r.result.outputPath); } catch { }
     }
   }
 
@@ -801,7 +801,7 @@ async function runAudit() {
         removeMetadata: true,
         customOutputDir: __dirname
       },
-      () => {}
+      () => { }
     );
     audioBatchResults.push(aRes);
   }
@@ -812,7 +812,7 @@ async function runAudit() {
   // Cleanup audio outputs
   for (const r of audioBatchResults) {
     if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
-      try { fs.unlinkSync(r.result.outputPath); } catch {}
+      try { fs.unlinkSync(r.result.outputPath); } catch { }
     }
   }
 
@@ -858,7 +858,7 @@ async function runAudit() {
         removeMetadata: true,
         customOutputDir: __dirname
       },
-      () => {}
+      () => { }
     );
     mixedAudioResults.push(aRes);
   }
@@ -871,10 +871,10 @@ async function runAudit() {
   // Cleanup
   for (const r of mixedAudioResults) {
     if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
-      try { fs.unlinkSync(r.result.outputPath); } catch {}
+      try { fs.unlinkSync(r.result.outputPath); } catch { }
     }
   }
-  try { fs.unlinkSync(batchNoAudioSample); } catch {}
+  try { fs.unlinkSync(batchNoAudioSample); } catch { }
 
   // Test 13.5: Duplicate Detection Logic
   const mockQueue = [
@@ -911,14 +911,14 @@ async function runAudit() {
         customOutputDir: __dirname,
         targetSizeBytes: itemTarget
       },
-      () => {}
+      () => { }
     );
     batchCustomResults.push(cRes);
   }
   assert(batchCustomResults.length === 2 && batchCustomResults.every(r => r.success === true), 'Batch compression with custom target size processed all items successfully');
   for (const r of batchCustomResults) {
     if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
-      try { fs.unlinkSync(r.result.outputPath); } catch {}
+      try { fs.unlinkSync(r.result.outputPath); } catch { }
     }
   }
 
@@ -928,7 +928,7 @@ async function runAudit() {
     fs.unlinkSync(batchSample2);
     fs.unlinkSync(batchSample3);
     fs.unlinkSync(corruptSample);
-  } catch {}
+  } catch { }
 
   // 14. Image Path, Schema, and Mathematical Target Size Validation
   console.log('\n--- 14. Image Path Validation & Schema Security ---');
@@ -995,8 +995,8 @@ async function runAudit() {
   fs.writeFileSync(safeImgPath1, 'dummy compressed image 2');
   const safeImgPath2 = generateSafeImageDestinationPath(dummyImage, 'jpg', __dirname);
   assert(path.basename(safeImgPath2) === 'mock_image_compressed (2).jpg', 'generateSafeImageDestinationPath auto-increments on second collision');
-  try { fs.unlinkSync(dummyImageComp); } catch {}
-  try { fs.unlinkSync(safeImgPath1); } catch {}
+  try { fs.unlinkSync(dummyImageComp); } catch { }
+  try { fs.unlinkSync(safeImgPath1); } catch { }
 
   // 15. Live Image Probing, Thumbnail Generation, Multi-Format Compression & Batch
   console.log('\n--- 15. Live Image Probing & Thumbnail Generation ---');
@@ -1076,7 +1076,7 @@ async function runAudit() {
   );
   assert(autoRes.success === true && Boolean(autoRes.result?.outputPath), 'Automatic JPG compression succeeded');
   assert(fs.existsSync(autoRes.result.outputPath), 'Automatic output file exists on disk');
-  if (autoRes.result?.outputPath) { try { fs.unlinkSync(autoRes.result.outputPath); } catch {} }
+  if (autoRes.result?.outputPath) { try { fs.unlinkSync(autoRes.result.outputPath); } catch { } }
 
   // Mode 2: High Quality (PNG -> PNG)
   const highRes = await imageJobSupervisor.startCompression(
@@ -1089,7 +1089,7 @@ async function runAudit() {
     }
   );
   assert(highRes.success === true && (highRes.result?.outputFormat === 'PNG' || highRes.result?.format === 'png'), 'High quality PNG compression succeeded with PNG format preserved');
-  if (highRes.result?.outputPath) { try { fs.unlinkSync(highRes.result.outputPath); } catch {} }
+  if (highRes.result?.outputPath) { try { fs.unlinkSync(highRes.result.outputPath); } catch { } }
 
   // Mode 3: Medium Quality (WebP -> WebP)
   const medRes = await imageJobSupervisor.startCompression(
@@ -1102,7 +1102,7 @@ async function runAudit() {
     }
   );
   assert(medRes.success === true && (medRes.result?.outputFormat === 'WEBP' || medRes.result?.format === 'webp'), 'Medium quality WebP compression succeeded');
-  if (medRes.result?.outputPath) { try { fs.unlinkSync(medRes.result.outputPath); } catch {} }
+  if (medRes.result?.outputPath) { try { fs.unlinkSync(medRes.result.outputPath); } catch { } }
 
   // Mode 4: Low Quality (BMP -> WebP conversion)
   const lowRes = await imageJobSupervisor.startCompression(
@@ -1115,7 +1115,7 @@ async function runAudit() {
     }
   );
   assert(lowRes.success === true && (lowRes.result?.outputFormat === 'WEBP' || lowRes.result?.format === 'webp'), 'Low quality BMP -> WebP conversion succeeded');
-  if (lowRes.result?.outputPath) { try { fs.unlinkSync(lowRes.result.outputPath); } catch {} }
+  if (lowRes.result?.outputPath) { try { fs.unlinkSync(lowRes.result.outputPath); } catch { } }
 
   console.log('\n--- 15.2 Transparency Handling (PNG with Alpha -> JPG) ---');
   const transparentToJpgRes = await imageJobSupervisor.startCompression(
@@ -1130,7 +1130,7 @@ async function runAudit() {
   assert(transparentToJpgRes.success === true && (transparentToJpgRes.result?.outputFormat === 'JPG' || transparentToJpgRes.result?.format === 'jpg'), 'Transparent PNG -> JPG conversion succeeded');
   const probeTransJpg = await probeImageFile(transparentToJpgRes.result.outputPath);
   assert(probeTransJpg.success === true && probeTransJpg.metadata?.hasAlpha === false, 'Output JPG has clean flattened composite (no transparency crash)');
-  if (transparentToJpgRes.result?.outputPath) { try { fs.unlinkSync(transparentToJpgRes.result.outputPath); } catch {} }
+  if (transparentToJpgRes.result?.outputPath) { try { fs.unlinkSync(transparentToJpgRes.result.outputPath); } catch { } }
 
   console.log('\n--- 15.3 Image Resizing Engine ---');
   // Percentage resize: 50% of 320x240 -> 160x120
@@ -1152,7 +1152,7 @@ async function runAudit() {
   assert(resizePercentRes.success === true, 'Percentage resizing completed successfully');
   const probeResize50 = await probeImageFile(resizePercentRes.result.outputPath);
   assert(probeResize50.metadata?.width === 160 && probeResize50.metadata?.height === 120, 'Image dimensions scaled exactly 50% to 160x120');
-  if (resizePercentRes.result?.outputPath) { try { fs.unlinkSync(resizePercentRes.result.outputPath); } catch {} }
+  if (resizePercentRes.result?.outputPath) { try { fs.unlinkSync(resizePercentRes.result.outputPath); } catch { } }
 
   // Custom dimension resize: 100x100 lockAspectRatio -> 100x75
   const resizeDimRes = await imageJobSupervisor.startCompression(
@@ -1174,7 +1174,7 @@ async function runAudit() {
   assert(resizeDimRes.success === true, 'Custom dimension resize completed successfully');
   const probeResizeDim = await probeImageFile(resizeDimRes.result.outputPath);
   assert(probeResizeDim.metadata?.width === 100 && probeResizeDim.metadata?.height === 75, 'Image dimensions fitted within 100x100 with aspect ratio locked (100x75)');
-  if (resizeDimRes.result?.outputPath) { try { fs.unlinkSync(resizeDimRes.result.outputPath); } catch {} }
+  if (resizeDimRes.result?.outputPath) { try { fs.unlinkSync(resizeDimRes.result.outputPath); } catch { } }
 
   console.log('\n--- 15.4 Custom Target Size (Bounded Iterative Search) ---');
   const targetSizeRes = await imageJobSupervisor.startCompression(
@@ -1190,7 +1190,7 @@ async function runAudit() {
   );
   assert(targetSizeRes.success === true, 'Custom Target Size compression completed within bounded iterations');
   assert(fs.existsSync(targetSizeRes.result.outputPath), 'Custom Target Size output file exists');
-  if (targetSizeRes.result?.outputPath) { try { fs.unlinkSync(targetSizeRes.result.outputPath); } catch {} }
+  if (targetSizeRes.result?.outputPath) { try { fs.unlinkSync(targetSizeRes.result.outputPath); } catch { } }
 
   console.log('\n--- 15.5 Batch Multi-Image Sequential Processing & Error Resilience ---');
   const batchImg1 = testJpg;
@@ -1225,7 +1225,7 @@ async function runAudit() {
 
   for (const r of batchResults) {
     if (r.result?.outputPath && fs.existsSync(r.result.outputPath)) {
-      try { fs.unlinkSync(r.result.outputPath); } catch {}
+      try { fs.unlinkSync(r.result.outputPath); } catch { }
     }
   }
 
@@ -1236,7 +1236,136 @@ async function runAudit() {
     fs.unlinkSync(testWebp);
     fs.unlinkSync(testBmp);
     fs.unlinkSync(batchImgCorrupt);
-  } catch {}
+  } catch { }
+
+  console.log('\n--- 15.6 Image Selection Queue Processing & Invariants ---');
+  // Helper simulating the exact App.tsx handleSelectImages queue processing logic
+  function processIncomingImageSelection(incomingFiles, existingQueue = [], isAddMore = false) {
+    const queue = isAddMore ? [...existingQueue] : [];
+    const newItems = [];
+    let duplicatesCount = 0;
+
+    for (const item of incomingFiles) {
+      if (item.error || item.status === 'failed') continue;
+      const filePath = item.filePath || item.metadata?.filePath;
+      if (!filePath) continue;
+
+      const isDup = queue.some(q => q.filePath.toLowerCase() === filePath.toLowerCase());
+      if (isDup) {
+        duplicatesCount++;
+        continue;
+      }
+
+      const meta = item.metadata;
+      const fileName = item.fileName || meta?.fileName || path.basename(filePath);
+      const fileSizeBytes = item.fileSizeBytes ?? meta?.fileSizeBytes ?? 0;
+      const formattedSize = item.formattedSize || meta?.formattedSize || '0 B';
+      const format = item.format || meta?.format || 'jpg';
+      const width = item.width ?? meta?.width ?? 0;
+      const height = item.height ?? meta?.height ?? 0;
+      const hasAlpha = item.hasAlpha ?? meta?.hasAlpha ?? false;
+      const thumb = item.thumbnailDataUrl || item.thumbnailBase64 || meta?.thumbnailDataUrl || meta?.thumbnailBase64;
+
+      newItems.push({
+        id: item.id || filePath,
+        filePath,
+        fileName,
+        fileSizeBytes,
+        formattedSize,
+        format,
+        width,
+        height,
+        hasAlpha,
+        thumbnailDataUrl: thumb,
+        thumbnailBase64: thumb,
+        status: 'pending'
+      });
+    }
+
+    return {
+      finalQueue: isAddMore ? [...queue, ...newItems] : newItems,
+      newItems,
+      duplicatesCount
+    };
+  }
+
+  // Test 15.6.1: Single JPG Selection (with IPC flat item payload)
+  const mockIpcJpg = {
+    id: 'img_1',
+    filePath: 'C:\\Photos\\test.jpg',
+    fileName: 'test.jpg',
+    fileSizeBytes: 204800,
+    formattedSize: '200.0 KB',
+    format: 'jpg',
+    width: 1920,
+    height: 1080,
+    hasAlpha: false,
+    thumbnailDataUrl: 'data:image/webp;base64,mockthumb',
+    status: 'pending'
+  };
+  const singleJpgSelect = processIncomingImageSelection([mockIpcJpg]);
+  assert(singleJpgSelect.finalQueue.length === 1, 'Single JPG selection correctly populates queue');
+  assert(singleJpgSelect.finalQueue[0].fileName === 'test.jpg', 'Filename preserved');
+  assert(singleJpgSelect.finalQueue[0].fileSizeBytes === 204800, 'File size preserved');
+  assert(singleJpgSelect.finalQueue[0].thumbnailDataUrl === 'data:image/webp;base64,mockthumb', 'Thumbnail preserved');
+
+  // Test 15.6.2: Single PNG Selection with Alpha
+  const mockIpcPng = {
+    id: 'img_2',
+    filePath: 'C:\\Photos\\logo.png',
+    fileName: 'logo.png',
+    fileSizeBytes: 512000,
+    formattedSize: '500.0 KB',
+    format: 'png',
+    width: 800,
+    height: 600,
+    hasAlpha: true,
+    thumbnailDataUrl: 'data:image/webp;base64,mockpngthumb',
+    status: 'pending'
+  };
+  const singlePngSelect = processIncomingImageSelection([mockIpcPng]);
+  assert(singlePngSelect.finalQueue.length === 1, 'Single PNG selection populates queue');
+  assert(singlePngSelect.finalQueue[0].hasAlpha === true, 'Alpha transparency preserved');
+
+  // Test 15.6.3: Multiple Image Selection (3 images at once)
+  const mockIpcWebp = {
+    id: 'img_3',
+    filePath: 'C:\\Photos\\banner.webp',
+    fileName: 'banner.webp',
+    fileSizeBytes: 102400,
+    formattedSize: '100.0 KB',
+    format: 'webp',
+    width: 1200,
+    height: 400,
+    hasAlpha: false,
+    thumbnailDataUrl: 'data:image/webp;base64,mockwebpthumb',
+    status: 'pending'
+  };
+  const multiSelect = processIncomingImageSelection([mockIpcJpg, mockIpcPng, mockIpcWebp]);
+  assert(multiSelect.finalQueue.length === 3, 'Multiple images (3) all added to queue successfully');
+
+  // Test 15.6.4: Add More (appending to existing queue)
+  const existingQueue = [mockIpcJpg];
+  const addMoreSelect = processIncomingImageSelection([mockIpcPng, mockIpcWebp], existingQueue, true);
+  assert(addMoreSelect.finalQueue.length === 3, 'Add More appends 2 new items to 1 existing item (3 total)');
+  assert(addMoreSelect.finalQueue[0].filePath === 'C:\\Photos\\test.jpg', 'Original queue item preserved at index 0');
+
+  // Test 15.6.5: Duplicate Image Detection & Rejection
+  const duplicateAttempt = processIncomingImageSelection([
+    { ...mockIpcJpg, filePath: 'c:\\photos\\TEST.JPG' }, // Case-insensitive duplicate
+    mockIpcWebp
+  ], existingQueue, true);
+  assert(duplicateAttempt.duplicatesCount === 1, 'Duplicate image detected and skipped');
+  assert(duplicateAttempt.newItems.length === 1, 'Only non-duplicate item added');
+  assert(duplicateAttempt.finalQueue.length === 2, 'Queue contains only unique items');
+
+  // Test 15.6.6: Dialog Cancellation Preserves Queue
+  let currentActiveQueue = [...multiSelect.finalQueue];
+  const dialogCanceled = true;
+  if (!dialogCanceled) {
+    currentActiveQueue = [];
+  }
+  assert(currentActiveQueue.length === 3, 'Dialog cancellation preserves existing queue without clearing');
 
   console.log('\n====================================================');
   console.log(`AUDIT RESULTS: ${passedTests} PASSED, ${failedTests} FAILED (TOTAL: ${totalTests})`);

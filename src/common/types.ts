@@ -243,8 +243,10 @@ export interface ImageQueueItem {
   readonly hasAlpha: boolean;
   readonly thumbnailDataUrl?: string;
   readonly thumbnailBase64?: string;
+  readonly metadata?: ImageMetadata;
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
   result?: ImageCompressionResult;
+  compressResult?: ImageCompressionResult;
   error?: StructuredError;
 }
 

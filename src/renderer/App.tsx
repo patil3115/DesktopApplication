@@ -649,12 +649,18 @@ export const App: React.FC = () => {
         return;
       }
 
+      console.log('[ImageSelect] Invoking native image picker (isAddMore:', isAddMore, ')...');
       const res = await window.videoCompressor.selectImages();
+      console.log('[ImageSelect] Native image picker returned:', res);
+
       if (res.canceled) {
+        console.log('[ImageSelect] User cancelled image selection dialog.');
         return;
       }
 
       const incomingFiles = res.files || [];
+      console.log('[ImageSelect] Number of files returned by dialog:', incomingFiles.length);
+
       if (incomingFiles.length === 0) {
         if (res.error) {
           setError(res.error);
@@ -668,36 +674,68 @@ export const App: React.FC = () => {
       let firstError: StructuredError | null = null;
 
       for (const item of incomingFiles) {
-        if (!item.metadata) {
+        if (item.error || item.status === 'failed') {
+          console.warn('[ImageSelect] File had validation or probe error:', item.error);
           if (!firstError && item.error) {
             firstError = item.error;
           }
           continue;
         }
 
+        const filePath = item.filePath || (item as any).metadata?.filePath;
+        if (!filePath) {
+          console.warn('[ImageSelect] Skipping item without filePath:', item);
+          continue;
+        }
+
         const isDuplicate = existingQueue.some(
-          (q) => q.filePath.toLowerCase() === item.filePath.toLowerCase()
+          (q) => q.filePath.toLowerCase() === filePath.toLowerCase()
         );
         if (isDuplicate) {
           duplicatesCount++;
           continue;
         }
 
+        const metadata = (item as any).metadata;
+        const fileName = item.fileName || metadata?.fileName || filePath.split(/[/\\]/).pop() || 'image';
+        const fileSizeBytes = item.fileSizeBytes ?? metadata?.fileSizeBytes ?? 0;
+        const formattedSize = item.formattedSize || metadata?.formattedSize || '0 B';
+        const format = item.format || metadata?.format || 'jpg';
+        const width = item.width ?? metadata?.width ?? 0;
+        const height = item.height ?? metadata?.height ?? 0;
+        const hasAlpha = item.hasAlpha ?? metadata?.hasAlpha ?? false;
+        const thumb = item.thumbnailDataUrl || item.thumbnailBase64 || metadata?.thumbnailDataUrl || metadata?.thumbnailBase64;
+
         newItems.push({
-          id: item.filePath,
-          filePath: item.filePath,
-          fileName: item.metadata.fileName,
-          fileSizeBytes: item.metadata.fileSizeBytes,
-          formattedSize: item.metadata.formattedSize,
-          format: item.metadata.format,
-          width: item.metadata.width,
-          height: item.metadata.height,
-          hasAlpha: item.metadata.hasAlpha,
-          thumbnailBase64: item.metadata.thumbnailBase64,
-          metadata: item.metadata,
+          id: item.id || filePath,
+          filePath,
+          fileName,
+          fileSizeBytes,
+          formattedSize,
+          format,
+          width,
+          height,
+          hasAlpha,
+          thumbnailDataUrl: thumb,
+          thumbnailBase64: thumb,
+          metadata: metadata || {
+            fileName,
+            filePath,
+            fileSizeBytes,
+            formattedSize,
+            format,
+            width,
+            height,
+            aspectRatio: height > 0 ? width / height : 1,
+            hasAlpha,
+            thumbnailDataUrl: thumb,
+            thumbnailBase64: thumb
+          },
           status: 'pending'
         });
       }
+
+      console.log('[ImageSelect] Files successfully prepared for queue:', newItems.length, 'Duplicates skipped:', duplicatesCount);
 
       if (duplicatesCount > 0) {
         setDuplicateNotice(
@@ -711,8 +749,10 @@ export const App: React.FC = () => {
       }
 
       const finalQueue = isAddMore ? [...existingQueue, ...newItems] : newItems;
+      console.log('[ImageSelect] Updating imageQueue state with', finalQueue.length, 'items');
       setImageQueue(finalQueue);
-    } catch {
+    } catch (ipcErr) {
+      console.error('[ImageSelect] Unexpected image selection exception:', ipcErr);
       setError({
         code: 'IPC_UNAVAILABLE',
         userMessage: 'Communication with desktop host failed during image selection.'
@@ -852,7 +892,8 @@ export const App: React.FC = () => {
           itemsCopy[i] = {
             ...currentItem,
             status: 'completed',
-            compressResult: res.result
+            compressResult: res.result,
+            result: res.result
           };
           completedCount++;
         } else if (res.error) {
@@ -1154,7 +1195,10 @@ export const App: React.FC = () => {
                     onCompress={handleStartImageCompression}
                     onSelectOutputDir={handleSelectImageOutputDir}
                     disabled={isCompressingImage}
+                    batchCount={imageQueue.length}
+                    queue={imageQueue}
                     imageQueue={imageQueue}
+                    selectedImage={imageQueue[0] ?? null}
                   />
                 </>
               )}

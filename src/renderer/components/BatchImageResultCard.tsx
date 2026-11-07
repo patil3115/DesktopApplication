@@ -205,3 +205,4 @@ export const BatchImageResultCard: React.FC<BatchImageResultCardProps> = ({
     </div>
   );
 };
+
