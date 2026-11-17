@@ -14,6 +14,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { formatBytes } from '../../common/formatters';
+import { CustomDropdown, DropdownOption } from './CustomDropdown';
 import {
   FolderScanResult,
   FolderCompressionSummary,
@@ -24,6 +25,32 @@ import {
   VideoCodecOption,
   ImageOutputFormat
 } from '../../common/types';
+
+const VIDEO_QUALITY_OPTIONS: readonly DropdownOption<QualityPreset>[] = [
+  { value: 'auto', label: 'Auto (Balanced)' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' }
+];
+
+const VIDEO_CODEC_OPTIONS: readonly DropdownOption<VideoCodecOption>[] = [
+  { value: 'h264', label: 'H.264 (Universal)' },
+  { value: 'h265', label: 'H.265 (High Efficiency)' }
+];
+
+const IMAGE_QUALITY_OPTIONS: readonly DropdownOption<QualityPreset>[] = [
+  { value: 'auto', label: 'Auto (Balanced)' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' }
+];
+
+const IMAGE_FORMAT_OPTIONS: readonly DropdownOption<ImageOutputFormat>[] = [
+  { value: 'original', label: 'Keep Original' },
+  { value: 'webp', label: 'WebP' },
+  { value: 'jpg', label: 'JPG' },
+  { value: 'png', label: 'PNG' }
+];
 
 interface FolderViewProps {
   scanResult: FolderScanResult;
@@ -193,7 +220,7 @@ export const FolderView: React.FC<FolderViewProps> = ({
                             </span>
                           ) : isRetained ? (
                             <span className="status-badge status-warning">
-                              <AlertTriangle size={13} /> Original retained
+                              <AlertTriangle size={13} /> No reduction — original retained
                             </span>
                           ) : (
                             <span className="status-badge status-failed">
@@ -229,9 +256,9 @@ export const FolderView: React.FC<FolderViewProps> = ({
                           ) : isRetained ? (
                             <span
                               className="no-reduction-pill"
-                              title="Original retained — no reduction achieved"
+                              title="No reduction — original retained (0%)"
                             >
-                              Original retained — no reduction achieved
+                              No reduction — original retained
                             </span>
                           ) : (
                             <span className="failed-text" title={entry.error?.userMessage || 'Failed'}>
@@ -389,39 +416,29 @@ export const FolderView: React.FC<FolderViewProps> = ({
           </div>
 
           <div className="setting-group">
-            <label htmlFor="folder-video-quality-select">Quality Preset:</label>
-            <select
+            <CustomDropdown
               id="folder-video-quality-select"
-              className="field-select"
+              label="Quality Preset:"
               value={videoSettings.quality}
+              options={VIDEO_QUALITY_OPTIONS}
               disabled={isCompressing}
-              onChange={(e) => {
-                const q = e.target.value as QualityPreset;
+              onChange={(q) => {
                 onChangeVideoSettings((prev) => ({ ...prev, quality: q }));
               }}
-            >
-              <option value="auto">Auto (Balanced)</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
+            />
           </div>
 
           <div className="setting-group">
-            <label htmlFor="folder-video-codec-select">Video Codec:</label>
-            <select
+            <CustomDropdown
               id="folder-video-codec-select"
-              className="field-select"
+              label="Video Codec:"
               value={videoSettings.codec}
+              options={VIDEO_CODEC_OPTIONS}
               disabled={isCompressing}
-              onChange={(e) => {
-                const c = e.target.value as VideoCodecOption;
+              onChange={(c) => {
                 onChangeVideoSettings((prev) => ({ ...prev, codec: c }));
               }}
-            >
-              <option value="h264">H.264 (Universal)</option>
-              <option value="h265">H.265 (High Efficiency)</option>
-            </select>
+            />
           </div>
         </div>
 
@@ -433,41 +450,29 @@ export const FolderView: React.FC<FolderViewProps> = ({
           </div>
 
           <div className="setting-group">
-            <label htmlFor="folder-image-quality-select">Quality Preset:</label>
-            <select
+            <CustomDropdown
               id="folder-image-quality-select"
-              className="field-select"
+              label="Quality Preset:"
               value={imageSettings.quality}
+              options={IMAGE_QUALITY_OPTIONS}
               disabled={isCompressing}
-              onChange={(e) => {
-                const q = e.target.value as QualityPreset;
+              onChange={(q) => {
                 onChangeImageSettings((prev) => ({ ...prev, quality: q }));
               }}
-            >
-              <option value="auto">Auto (Balanced)</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
+            />
           </div>
 
           <div className="setting-group">
-            <label htmlFor="folder-image-format-select">Output Format:</label>
-            <select
+            <CustomDropdown
               id="folder-image-format-select"
-              className="field-select"
+              label="Output Format:"
               value={imageSettings.outputFormat}
+              options={IMAGE_FORMAT_OPTIONS}
               disabled={isCompressing}
-              onChange={(e) => {
-                const fmt = e.target.value as ImageOutputFormat;
+              onChange={(fmt) => {
                 onChangeImageSettings((prev) => ({ ...prev, outputFormat: fmt }));
               }}
-            >
-              <option value="original">Keep Original</option>
-              <option value="webp">WebP</option>
-              <option value="jpg">JPG</option>
-              <option value="png">PNG</option>
-            </select>
+            />
           </div>
         </div>
       </div>
