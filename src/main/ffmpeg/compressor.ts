@@ -408,11 +408,40 @@ export class CompressionJobSupervisor {
       // =======================================================================
       // MODES: AUTOMATIC, HIGH, MEDIUM, LOW (SINGLE-PASS ENCODING)
       // =======================================================================
-      const crfMap: Record<string, string> = {
-        auto: '24',
-        high: isH265 ? '22' : '20',
-        medium: isH265 ? '26' : '24',
-        low: isH265 ? '30' : '28'
+      // 1. Source bitrate & stream analysis:
+      // Derive baseline total bitrate from physical file size and duration.
+      const sourceTotalBitrateKbps = (durationSeconds > 0 && inputStat.size > 0)
+        ? Math.round((inputStat.size * 8) / (durationSeconds * 1000))
+        : (metadata?.bitrateKbps || 2500);
+
+      let sourceAudioBitrateKbps = 128;
+      let isSourceAac = false;
+      if (metadata && metadata.audioStreams && metadata.audioStreams.length > 0) {
+        const primaryAudio = metadata.audioStreams[0];
+        if (primaryAudio?.bitrateKbps && primaryAudio.bitrateKbps > 0) {
+          sourceAudioBitrateKbps = primaryAudio.bitrateKbps;
+        }
+        if (primaryAudio?.codec && primaryAudio.codec.toLowerCase() === 'aac') {
+          isSourceAac = true;
+        }
+      }
+
+      const sourceVideoBitrateKbps = Math.max(80, sourceTotalBitrateKbps - (hasAudioInput ? sourceAudioBitrateKbps : 0));
+
+      // 2. Profile-specific rate ceilings and base quality parameters:
+      // Ceilings prevent CRF from ever requesting a bitrate higher than source needs.
+      const ceilingRatioMap: Record<string, number> = {
+        auto: isH265 ? 0.65 : 0.75,
+        high: isH265 ? 0.75 : 0.85,
+        medium: isH265 ? 0.60 : 0.72,
+        low: isH265 ? 0.45 : 0.55
+      };
+
+      const baseCrfMap: Record<string, number> = {
+        auto: isH265 ? 26 : 24,
+        high: isH265 ? 22 : 20,
+        medium: isH265 ? 26 : 24,
+        low: isH265 ? 30 : 28
       };
 
       const presetMap: Record<string, string> = {
@@ -422,16 +451,34 @@ export class CompressionJobSupervisor {
         low: 'fast'
       };
 
-      const audioBitrateMap: Record<string, string> = {
-        auto: '128k',
-        high: '192k',
-        medium: '128k',
-        low: '96k'
+      const audioBitrateMap: Record<string, number> = {
+        auto: 128,
+        high: 192,
+        medium: 128,
+        low: 96
       };
+
+      const ceilingRatio = ceilingRatioMap[settings.quality] ?? (isH265 ? 0.65 : 0.75);
+      let crf = baseCrfMap[settings.quality] ?? (isH265 ? 26 : 24);
+
+      // Adaptive CRF adjustment:
+      // When source video is already compressed to a low bitrate, standard CRF will inflate bitrate.
+      // Adaptively step up CRF so the encoder's visual budget aligns with the low-bitrate input.
+      if (sourceVideoBitrateKbps < 800) {
+        crf += 4;
+      } else if (sourceVideoBitrateKbps < 1500) {
+        crf += 2;
+      }
+
+      // Constrain maximum video bitrate so encoding NEVER exceeds the source's bitrate budget
+      const maxVideoBitrateKbps = Math.max(60, Math.round(sourceVideoBitrateKbps * ceilingRatio));
+      const bufSizeKbps = maxVideoBitrateKbps * 2;
 
       const args: string[] = ['-nostdin', '-y', '-i', inputPath];
       args.push('-c:v', vCodec, '-pix_fmt', 'yuv420p');
-      args.push('-crf', crfMap[settings.quality] ?? '24');
+      args.push('-crf', crf.toString());
+      args.push('-maxrate', `${maxVideoBitrateKbps}k`);
+      args.push('-bufsize', `${bufSizeKbps}k`);
       args.push('-preset', presetMap[settings.quality] ?? 'medium');
 
       if (settings.resolution !== 'original' && resolutionScaleMap[settings.resolution]) {
@@ -451,7 +498,15 @@ export class CompressionJobSupervisor {
         if (settings.audioCodec === 'copy') {
           args.push('-c:a', 'copy');
         } else {
-          args.push('-c:a', 'aac', '-b:a', audioBitrateMap[settings.quality] ?? '128k');
+          const targetAudioBitrate = audioBitrateMap[settings.quality] ?? 128;
+          // Preserve audio without inflation:
+          // If source audio is already AAC and within budget, copy directly to avoid generational loss & size inflation.
+          if (isSourceAac && sourceAudioBitrateKbps <= targetAudioBitrate) {
+            args.push('-c:a', 'copy');
+          } else {
+            const effectiveAudioBitrate = Math.min(targetAudioBitrate, Math.max(48, sourceAudioBitrateKbps));
+            args.push('-c:a', 'aac', '-b:a', `${effectiveAudioBitrate}k`);
+          }
         }
       }
 
@@ -466,7 +521,9 @@ export class CompressionJobSupervisor {
         resolution: settings.resolution,
         fps: 'preserved (standard timescale 90000)',
         quality: settings.quality,
-        crf: crfMap[settings.quality] ?? '24',
+        crf: crf.toString(),
+        maxrate: `${maxVideoBitrateKbps}k`,
+        bufsize: `${bufSizeKbps}k`,
         preset: presetMap[settings.quality] ?? 'medium'
       });
 

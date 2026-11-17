@@ -183,6 +183,7 @@ export const FolderView: React.FC<FolderViewProps> = ({
                 <tbody>
                   {summaryResult.items.map((entry, idx) => {
                     const status = entry.status || (entry.success ? 'compressed' : 'failed');
+                    const isRetained = status === 'original_retained' || status === 'no_reduction';
                     return (
                       <tr key={`${entry.item.id}_${idx}`}>
                         <td className="status-cell">
@@ -190,9 +191,9 @@ export const FolderView: React.FC<FolderViewProps> = ({
                             <span className="status-badge status-compressed">
                               <CheckCircle2 size={13} /> Compressed
                             </span>
-                          ) : status === 'no_reduction' ? (
+                          ) : isRetained ? (
                             <span className="status-badge status-warning">
-                              <AlertTriangle size={13} /> No reduction
+                              <AlertTriangle size={13} /> Original retained
                             </span>
                           ) : (
                             <span className="status-badge status-failed">
@@ -225,12 +226,12 @@ export const FolderView: React.FC<FolderViewProps> = ({
                             <span className="reduction-pill">
                               {entry.reductionPercentage}% saved
                             </span>
-                          ) : status === 'no_reduction' ? (
+                          ) : isRetained ? (
                             <span
                               className="no-reduction-pill"
-                              title="Original file copied unchanged because compression would not yield smaller file"
+                              title="Original retained — no reduction achieved"
                             >
-                              Original copied (0%)
+                              Original retained — no reduction achieved
                             </span>
                           ) : (
                             <span className="failed-text" title={entry.error?.userMessage || 'Failed'}>

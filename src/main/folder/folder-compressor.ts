@@ -418,14 +418,14 @@ export class FolderCompressionSupervisor {
                 processedItems.push({
                   item,
                   success: true,
-                  status: 'no_reduction',
+                  status: 'original_retained',
                   outputPath: destPath,
                   outputFileName: path.basename(destPath),
                   originalSizeBytes: originalSize,
                   compressedSizeBytes: copiedStat.size,
                   reductionPercentage: 0
                 });
-                logger.info(`[FolderCompressor] Output was larger or equal (${formatBytes(encodedSize)} >= ${formatBytes(originalSize)}). Safeguard triggered: original copied unchanged.`, destPath);
+                logger.info(`[FolderCompressor] Output was larger or equal (${formatBytes(encodedSize)} >= ${formatBytes(originalSize)}). Safeguard triggered: Original retained — no reduction achieved.`, destPath);
               }
             } else {
               await tempManager.cleanupFile(tempVideoOutput);
@@ -544,7 +544,7 @@ export class FolderCompressionSupervisor {
                 processedItems.push({
                   item,
                   success: true,
-                  status: 'no_reduction',
+                  status: 'original_retained',
                   outputPath: destPath,
                   outputFileName: path.basename(destPath),
                   originalSizeBytes: originalSize,
