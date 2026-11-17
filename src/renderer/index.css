@@ -3,6 +3,8 @@
   --bg-surface: #121722;
   --bg-surface-elevated: #182030;
   --bg-surface-hover: #1f293d;
+  --bg-card: #121722;
+  --bg-hover: #1f293d;
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-focus: #10b981;
   --text-primary: #f3f4f6;
@@ -1182,8 +1184,11 @@ input, select {
   border: 1px solid var(--border-subtle);
 }
 
-.folder-progress-card .progress-fill {
+.folder-progress-card .progress-fill,
+.folder-progress-card .progress-bar {
   height: 100%;
+  min-height: 100%;
+  display: block;
   background: #10b981;
   background: linear-gradient(90deg, #059669, #10b981, #34d399);
   border-radius: 999px;
