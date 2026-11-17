@@ -597,6 +597,12 @@ input, select {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 12px var(--accent-cyan-dim);
 }
 
+.mode-tab.active-folder {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3), 0 0 12px rgba(56, 189, 248, 0.15);
+}
+
 /* Stream Copy Optimization Badge */
 .stream-copy-badge {
   display: flex;
@@ -904,12 +910,6 @@ input, select {
 /* ========================================================================= */
 /* Folder Compression Styles                                                 */
 /* ========================================================================= */
-
-.mode-tab.active-folder {
-  color: #38bdf8;
-  border-bottom: 2px solid #38bdf8;
-  background-color: rgba(56, 189, 248, 0.08);
-}
 
 .folder-view-container {
   display: flex;
