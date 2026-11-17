@@ -369,35 +369,39 @@ export const FolderView: React.FC<FolderViewProps> = ({
           </div>
 
           <div className="setting-group">
-            <label>Quality Preset:</label>
-            <div className="preset-button-group">
-              {(['auto', 'high', 'medium', 'low'] as QualityPreset[]).map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  className={`preset-btn ${videoSettings.quality === q ? 'active' : ''}`}
-                  onClick={() => onChangeVideoSettings((prev) => ({ ...prev, quality: q }))}
-                >
-                  {q === 'auto' ? 'Auto (Balanced)' : q.charAt(0).toUpperCase() + q.slice(1)}
-                </button>
-              ))}
-            </div>
+            <label htmlFor="folder-video-quality-select">Quality Preset:</label>
+            <select
+              id="folder-video-quality-select"
+              className="field-select"
+              value={videoSettings.quality}
+              disabled={isCompressing}
+              onChange={(e) => {
+                const q = e.target.value as QualityPreset;
+                onChangeVideoSettings((prev) => ({ ...prev, quality: q }));
+              }}
+            >
+              <option value="auto">Auto (Balanced)</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
           </div>
 
           <div className="setting-group">
-            <label>Video Codec:</label>
-            <div className="preset-button-group">
-              {(['h264', 'h265'] as VideoCodecOption[]).map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  className={`preset-btn ${videoSettings.codec === c ? 'active' : ''}`}
-                  onClick={() => onChangeVideoSettings((prev) => ({ ...prev, codec: c }))}
-                >
-                  {c === 'h264' ? 'H.264 (Universal)' : 'H.265 (High Efficiency)'}
-                </button>
-              ))}
-            </div>
+            <label htmlFor="folder-video-codec-select">Video Codec:</label>
+            <select
+              id="folder-video-codec-select"
+              className="field-select"
+              value={videoSettings.codec}
+              disabled={isCompressing}
+              onChange={(e) => {
+                const c = e.target.value as VideoCodecOption;
+                onChangeVideoSettings((prev) => ({ ...prev, codec: c }));
+              }}
+            >
+              <option value="h264">H.264 (Universal)</option>
+              <option value="h265">H.265 (High Efficiency)</option>
+            </select>
           </div>
         </div>
 
@@ -409,35 +413,41 @@ export const FolderView: React.FC<FolderViewProps> = ({
           </div>
 
           <div className="setting-group">
-            <label>Quality Preset:</label>
-            <div className="preset-button-group">
-              {(['auto', 'high', 'medium', 'low'] as QualityPreset[]).map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  className={`preset-btn ${imageSettings.quality === q ? 'active' : ''}`}
-                  onClick={() => onChangeImageSettings((prev) => ({ ...prev, quality: q }))}
-                >
-                  {q === 'auto' ? 'Auto (Balanced)' : q.charAt(0).toUpperCase() + q.slice(1)}
-                </button>
-              ))}
-            </div>
+            <label htmlFor="folder-image-quality-select">Quality Preset:</label>
+            <select
+              id="folder-image-quality-select"
+              className="field-select"
+              value={imageSettings.quality}
+              disabled={isCompressing}
+              onChange={(e) => {
+                const q = e.target.value as QualityPreset;
+                onChangeImageSettings((prev) => ({ ...prev, quality: q }));
+              }}
+            >
+              <option value="auto">Auto (Balanced)</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
           </div>
 
           <div className="setting-group">
-            <label>Output Format:</label>
-            <div className="preset-button-group">
-              {(['original', 'webp', 'jpg', 'png'] as ImageOutputFormat[]).map((fmt) => (
-                <button
-                  key={fmt}
-                  type="button"
-                  className={`preset-btn ${imageSettings.outputFormat === fmt ? 'active' : ''}`}
-                  onClick={() => onChangeImageSettings((prev) => ({ ...prev, outputFormat: fmt }))}
-                >
-                  {fmt === 'original' ? 'Keep Original' : fmt.toUpperCase()}
-                </button>
-              ))}
-            </div>
+            <label htmlFor="folder-image-format-select">Output Format:</label>
+            <select
+              id="folder-image-format-select"
+              className="field-select"
+              value={imageSettings.outputFormat}
+              disabled={isCompressing}
+              onChange={(e) => {
+                const fmt = e.target.value as ImageOutputFormat;
+                onChangeImageSettings((prev) => ({ ...prev, outputFormat: fmt }));
+              }}
+            >
+              <option value="original">Keep Original</option>
+              <option value="webp">WebP</option>
+              <option value="jpg">JPG</option>
+              <option value="png">PNG</option>
+            </select>
           </div>
         </div>
       </div>
