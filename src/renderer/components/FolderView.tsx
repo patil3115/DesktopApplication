@@ -258,8 +258,18 @@ export const FolderView: React.FC<FolderViewProps> = ({
           <span className="progress-percentage-label">{percent}%</span>
         </div>
 
-        <div className="progress-track">
-          <div className="progress-fill" style={{ width: `${percent}%` }} />
+        <div className="progress-track" style={{ width: '100%', height: 14, background: '#1e293b', borderRadius: 999, overflow: 'hidden' }}>
+          <div
+            className="progress-fill"
+            style={{
+              width: `${Math.max(0, Math.min(100, percent))}%`,
+              height: '100%',
+              background: 'linear-gradient(90deg, #059669, #10b981, #34d399)',
+              borderRadius: 999,
+              transition: 'width 250ms ease',
+              boxShadow: '0 0 10px rgba(16, 185, 129, 0.4)'
+            }}
+          />
         </div>
 
         <div className="progress-detail-row">
