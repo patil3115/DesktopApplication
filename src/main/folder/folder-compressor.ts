@@ -7,7 +7,8 @@ import { probeVideoFile } from '../ffmpeg/probe';
 import { imageJobSupervisor } from '../image/image-compressor';
 import { probeImageFile } from '../image/image-probe';
 import { validateFolderCompressionPaths, validateSourceDirectoryPath } from '../fs/path-sanitizer';
-import { generateFolderSafeDestinationPath } from '../fs/atomic-move';
+import { generateFolderSafeDestinationPath, atomicMove } from '../fs/atomic-move';
+import { tempManager } from '../fs/temp-manager';
 import {
   validateCompressionSettings,
   validateImageCompressionSettings
@@ -17,6 +18,7 @@ import {
   FolderScanResult,
   FolderItemProgress,
   FolderProcessedItem,
+  FolderItemStatus,
   FolderCompressionSummary,
   CompressionSettings,
   ImageCompressionSettings,
@@ -302,6 +304,7 @@ export class FolderCompressionSupervisor {
               processedItems.push({
                 item,
                 success: false,
+                status: 'failed',
                 originalSizeBytes: item.fileSizeBytes,
                 error: probeRes.error
               });
@@ -316,9 +319,13 @@ export class FolderCompressionSupervisor {
               claimedPaths
             );
 
+            // Mandatory Output-Size Safeguard:
+            // Encode video to an isolated temporary file first
+            const tempVideoOutput = tempManager.createTempFilePath(path.extname(destPath) || '.mp4');
+
             const effectiveVideoSettings: CompressionSettings = {
               ...videoSettings,
-              customOutputPath: destPath
+              customOutputPath: tempVideoOutput
             };
 
             const compressRes = await jobSupervisor.startCompression(
@@ -343,36 +350,90 @@ export class FolderCompressionSupervisor {
               probeRes.metadata
             );
 
-            if (compressRes.success && compressRes.result) {
-              completedCount++;
-              compressedTotalBytes += compressRes.result.compressedSizeBytes;
+            if (this.isCancelling) {
+              await tempManager.cleanupFile(tempVideoOutput);
+              wasCancelled = true;
               processedItems.push({
                 item,
-                success: true,
-                outputPath: compressRes.result.outputPath,
-                outputFileName: compressRes.result.outputFileName,
-                originalSizeBytes: compressRes.result.originalSizeBytes,
-                compressedSizeBytes: compressRes.result.compressedSizeBytes,
-                reductionPercentage: compressRes.result.reductionPercentage
+                success: false,
+                status: 'failed',
+                originalSizeBytes: item.fileSizeBytes,
+                error: {
+                  code: 'CANCELLED',
+                  userMessage: 'Compression cancelled.'
+                }
               });
-            } else {
-              if (this.isCancelling) {
-                wasCancelled = true;
+              break;
+            }
+
+            if (compressRes.success && compressRes.result) {
+              if (!fs.existsSync(tempVideoOutput)) {
+                throw new Error('Temporary encoded video file missing upon completion.');
+              }
+
+              // Verify encoded output is valid using FFprobe
+              const verifyProbe = await probeVideoFile(tempVideoOutput);
+              if (!verifyProbe.success || !verifyProbe.metadata) {
+                await tempManager.cleanupFile(tempVideoOutput);
+                throw new Error('Compressed video failed verification probe.');
+              }
+
+              const encodedStat = await fs.promises.stat(tempVideoOutput);
+              const originalSize = item.fileSizeBytes;
+              const encodedSize = encodedStat.size;
+
+              if (encodedSize < originalSize) {
+                // Size reduced: keep compressed output and move to destination
+                await atomicMove(tempVideoOutput, destPath);
+                const reductionBytes = originalSize - encodedSize;
+                const reductionPercentage = Math.round(((reductionBytes / originalSize) * 100) * 10) / 10;
+
+                completedCount++;
+                compressedTotalBytes += encodedSize;
                 processedItems.push({
                   item,
-                  success: false,
-                  originalSizeBytes: item.fileSizeBytes,
-                  error: {
-                    code: 'CANCELLED',
-                    userMessage: 'Compression cancelled.'
-                  }
+                  success: true,
+                  status: 'compressed',
+                  outputPath: destPath,
+                  outputFileName: path.basename(destPath),
+                  originalSizeBytes: originalSize,
+                  compressedSizeBytes: encodedSize,
+                  reductionPercentage
                 });
-                break;
+                logger.info(`[FolderCompressor] Video reduced from ${formatBytes(originalSize)} to ${formatBytes(encodedSize)} (-${reductionPercentage}%)`, destPath);
+              } else {
+                // Safeguard triggered: output is equal or larger!
+                // 1. Delete the larger temporary encoded output safely
+                await tempManager.cleanupFile(tempVideoOutput);
+
+                // 2. Ensure destination directory exists
+                await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+
+                // 3. Copy original file unchanged to mirrored output location
+                await fs.promises.copyFile(item.absolutePath, destPath);
+
+                const copiedStat = await fs.promises.stat(destPath);
+                completedCount++;
+                compressedTotalBytes += copiedStat.size;
+                processedItems.push({
+                  item,
+                  success: true,
+                  status: 'no_reduction',
+                  outputPath: destPath,
+                  outputFileName: path.basename(destPath),
+                  originalSizeBytes: originalSize,
+                  compressedSizeBytes: copiedStat.size,
+                  reductionPercentage: 0
+                });
+                logger.info(`[FolderCompressor] Output was larger or equal (${formatBytes(encodedSize)} >= ${formatBytes(originalSize)}). Safeguard triggered: original copied unchanged.`, destPath);
               }
+            } else {
+              await tempManager.cleanupFile(tempVideoOutput);
               failedCount++;
               processedItems.push({
                 item,
                 success: false,
+                status: 'failed',
                 originalSizeBytes: item.fileSizeBytes,
                 error: compressRes.error || {
                   code: 'COMPRESSION_FAILED',
@@ -388,6 +449,7 @@ export class FolderCompressionSupervisor {
               processedItems.push({
                 item,
                 success: false,
+                status: 'failed',
                 originalSizeBytes: item.fileSizeBytes,
                 error: probeRes.error || {
                   code: 'PROBE_FAILED',
@@ -405,9 +467,17 @@ export class FolderCompressionSupervisor {
               claimedPaths
             );
 
+            const isSameFormat =
+              !imageSettings.outputFormat ||
+              imageSettings.outputFormat === 'original' ||
+              imageSettings.outputFormat.toLowerCase() === path.extname(item.absolutePath).toLowerCase().replace(/^\./, '');
+
+            // Encode to isolated temporary file
+            const tempImageOutput = tempManager.createTempFilePath(path.extname(destPath) || '.jpg');
+
             const effectiveImageSettings: ImageCompressionSettings = {
               ...imageSettings,
-              customOutputPath: destPath
+              customOutputPath: tempImageOutput
             };
 
             const imageRes = await imageJobSupervisor.compressImage(
@@ -416,36 +486,79 @@ export class FolderCompressionSupervisor {
               effectiveImageSettings
             );
 
-            if (imageRes.success && imageRes.result) {
-              completedCount++;
-              compressedTotalBytes += imageRes.result.compressedSizeBytes;
+            if (this.isCancelling) {
+              await tempManager.cleanupFile(tempImageOutput);
+              wasCancelled = true;
               processedItems.push({
                 item,
-                success: true,
-                outputPath: imageRes.result.outputPath,
-                outputFileName: imageRes.result.outputFileName,
-                originalSizeBytes: imageRes.result.originalSizeBytes,
-                compressedSizeBytes: imageRes.result.compressedSizeBytes,
-                reductionPercentage: imageRes.result.reductionPercentage
+                success: false,
+                status: 'failed',
+                originalSizeBytes: item.fileSizeBytes,
+                error: {
+                  code: 'CANCELLED',
+                  userMessage: 'Compression cancelled.'
+                }
               });
-            } else {
-              if (this.isCancelling) {
-                wasCancelled = true;
+              break;
+            }
+
+            if (imageRes.success && imageRes.result) {
+              if (!fs.existsSync(tempImageOutput)) {
+                throw new Error('Temporary encoded image file missing upon completion.');
+              }
+
+              const encodedStat = await fs.promises.stat(tempImageOutput);
+              const originalSize = item.fileSizeBytes;
+              const encodedSize = encodedStat.size;
+
+              if (encodedSize < originalSize || !isSameFormat) {
+                await atomicMove(tempImageOutput, destPath);
+                const reductionBytes = originalSize > encodedSize ? originalSize - encodedSize : 0;
+                const reductionPercentage = originalSize > 0
+                  ? Math.round(((reductionBytes / originalSize) * 100) * 10) / 10
+                  : 0;
+
+                const itemStatus: FolderItemStatus = encodedSize < originalSize ? 'compressed' : 'no_reduction';
+
+                completedCount++;
+                compressedTotalBytes += encodedSize;
                 processedItems.push({
                   item,
-                  success: false,
-                  originalSizeBytes: item.fileSizeBytes,
-                  error: {
-                    code: 'CANCELLED',
-                    userMessage: 'Compression cancelled.'
-                  }
+                  success: true,
+                  status: itemStatus,
+                  outputPath: destPath,
+                  outputFileName: path.basename(destPath),
+                  originalSizeBytes: originalSize,
+                  compressedSizeBytes: encodedSize,
+                  reductionPercentage
                 });
-                break;
+              } else {
+                // Same format and output was larger or equal: safeguard!
+                await tempManager.cleanupFile(tempImageOutput);
+                await fs.promises.mkdir(path.dirname(destPath), { recursive: true });
+                await fs.promises.copyFile(item.absolutePath, destPath);
+
+                const copiedStat = await fs.promises.stat(destPath);
+                completedCount++;
+                compressedTotalBytes += copiedStat.size;
+                processedItems.push({
+                  item,
+                  success: true,
+                  status: 'no_reduction',
+                  outputPath: destPath,
+                  outputFileName: path.basename(destPath),
+                  originalSizeBytes: originalSize,
+                  compressedSizeBytes: copiedStat.size,
+                  reductionPercentage: 0
+                });
               }
+            } else {
+              await tempManager.cleanupFile(tempImageOutput);
               failedCount++;
               processedItems.push({
                 item,
                 success: false,
+                status: 'failed',
                 originalSizeBytes: item.fileSizeBytes,
                 error: imageRes.error || {
                   code: 'COMPRESSION_FAILED',
@@ -460,6 +573,7 @@ export class FolderCompressionSupervisor {
           processedItems.push({
             item,
             success: false,
+            status: 'failed',
             originalSizeBytes: item.fileSizeBytes,
             error: {
               code: 'COMPRESSION_FAILED',

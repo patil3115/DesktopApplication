@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
+import { formatBytes } from '../../common/formatters';
 import {
   FolderScanResult,
   FolderCompressionSummary,
@@ -129,15 +130,15 @@ export const FolderView: React.FC<FolderViewProps> = ({
           <div className="metric-box">
             <span className="metric-label">Original Size</span>
             <span className="metric-value">
-              {Math.round((summaryResult.originalTotalBytes / (1024 * 1024)) * 10) / 10} MB
+              {formatBytes(summaryResult.originalTotalBytes)}
             </span>
             <span className="metric-sub">Before compression</span>
           </div>
 
           <div className="metric-box">
-            <span className="metric-label">Compressed Size</span>
+            <span className="metric-label">Output Size</span>
             <span className="metric-value">
-              {Math.round((summaryResult.compressedTotalBytes / (1024 * 1024)) * 10) / 10} MB
+              {formatBytes(summaryResult.compressedTotalBytes)}
             </span>
             <span className="metric-sub">New folder size</span>
           </div>
@@ -148,7 +149,7 @@ export const FolderView: React.FC<FolderViewProps> = ({
               {summaryResult.overallReductionPercentage}%
             </span>
             <span className="metric-sub">
-              Saved {Math.round((totalReduction / (1024 * 1024)) * 10) / 10} MB
+              Saved {formatBytes(totalReduction)}
             </span>
           </div>
         </div>
@@ -175,53 +176,71 @@ export const FolderView: React.FC<FolderViewProps> = ({
                     <th>Relative Path</th>
                     <th>Type</th>
                     <th>Original</th>
-                    <th>Compressed</th>
-                    <th>Reduction</th>
+                    <th>Output</th>
+                    <th>Result</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {summaryResult.items.map((entry, idx) => (
-                    <tr key={`${entry.item.id}_${idx}`}>
-                      <td className="status-cell">
-                        {entry.success ? (
-                          <CheckCircle2 size={16} color="#10b981" title="Succeeded" />
-                        ) : (
-                          <XCircle
-                            size={16}
-                            color="#ef4444"
-                            title={entry.error?.userMessage || 'Failed'}
-                          />
-                        )}
-                      </td>
-                      <td className="path-cell" title={entry.item.relativePath}>
-                        {entry.item.relativePath}
-                      </td>
-                      <td className="type-cell">
-                        {entry.item.type === 'video' ? (
-                          <span className="badge badge-video">
-                            <Film size={12} /> Video
-                          </span>
-                        ) : (
-                          <span className="badge badge-image">
-                            <ImageIcon size={12} /> Image
-                          </span>
-                        )}
-                      </td>
-                      <td>{entry.item.formattedSize}</td>
-                      <td>
-                        {entry.compressedSizeBytes !== undefined
-                          ? `${Math.round((entry.compressedSizeBytes / (1024 * 1024)) * 10) / 10} MB`
-                          : '-'}
-                      </td>
-                      <td>
-                        {entry.reductionPercentage !== undefined ? (
-                          <span className="reduction-pill">-{entry.reductionPercentage}%</span>
-                        ) : (
-                          '-'
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {summaryResult.items.map((entry, idx) => {
+                    const status = entry.status || (entry.success ? 'compressed' : 'failed');
+                    return (
+                      <tr key={`${entry.item.id}_${idx}`}>
+                        <td className="status-cell">
+                          {status === 'compressed' ? (
+                            <span className="status-badge status-compressed">
+                              <CheckCircle2 size={13} /> Compressed
+                            </span>
+                          ) : status === 'no_reduction' ? (
+                            <span className="status-badge status-warning">
+                              <AlertTriangle size={13} /> No reduction
+                            </span>
+                          ) : (
+                            <span className="status-badge status-failed">
+                              <XCircle size={13} /> Failed
+                            </span>
+                          )}
+                        </td>
+                        <td className="path-cell" title={entry.item.relativePath}>
+                          {entry.item.relativePath}
+                        </td>
+                        <td className="type-cell">
+                          {entry.item.type === 'video' ? (
+                            <span className="badge badge-video">
+                              <Film size={12} /> Video
+                            </span>
+                          ) : (
+                            <span className="badge badge-image">
+                              <ImageIcon size={12} /> Image
+                            </span>
+                          )}
+                        </td>
+                        <td>{entry.item.formattedSize}</td>
+                        <td>
+                          {entry.compressedSizeBytes !== undefined
+                            ? formatBytes(entry.compressedSizeBytes)
+                            : '-'}
+                        </td>
+                        <td>
+                          {status === 'compressed' && entry.reductionPercentage !== undefined ? (
+                            <span className="reduction-pill">
+                              {entry.reductionPercentage}% saved
+                            </span>
+                          ) : status === 'no_reduction' ? (
+                            <span
+                              className="no-reduction-pill"
+                              title="Original file copied unchanged because compression would not yield smaller file"
+                            >
+                              Original copied (0%)
+                            </span>
+                          ) : (
+                            <span className="failed-text" title={entry.error?.userMessage || 'Failed'}>
+                              {entry.error?.userMessage || 'Failed'}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

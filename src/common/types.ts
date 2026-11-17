@@ -315,9 +315,12 @@ export interface FolderItemProgress {
   readonly currentItemPercent?: number;
 }
 
+export type FolderItemStatus = 'compressed' | 'no_reduction' | 'failed';
+
 export interface FolderProcessedItem {
   readonly item: ScannedFolderItem;
   readonly success: boolean;
+  readonly status?: FolderItemStatus;
   readonly outputPath?: string;
   readonly outputFileName?: string;
   readonly originalSizeBytes: number;
