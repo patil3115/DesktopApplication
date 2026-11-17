@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Video, Music, Image as ImageIcon } from 'lucide-react';
+import { Video, Music, Image as ImageIcon, Folder } from 'lucide-react';
 import { Header } from './components/Header';
 import { PrivacyBanner } from './components/PrivacyBanner';
 import { DropZone } from './components/DropZone';
@@ -9,6 +9,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { AudioSettingsPanel } from './components/AudioSettingsPanel';
 import { ImageSettingsPanel } from './components/ImageSettingsPanel';
 import { ImageQueueList } from './components/ImageQueueList';
+import { FolderView } from './components/FolderView';
 import { ProgressBar, BatchProgressInfo } from './components/ProgressBar';
 import { ResultCard } from './components/ResultCard';
 import { AudioResultCard } from './components/AudioResultCard';
@@ -28,14 +29,17 @@ import {
   ImageCompressionSettings,
   ImageCompressionResult,
   ImageQueueItem,
-  StructuredError
+  StructuredError,
+  FolderScanResult,
+  FolderCompressionSummary,
+  FolderItemProgress
 } from '../common/types';
 
 export const App: React.FC = () => {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.videoCompressor);
 
   // Active Application Mode
-  const [activeMode, setActiveMode] = useState<'compress' | 'audio' | 'image'>('compress');
+  const [activeMode, setActiveMode] = useState<'compress' | 'audio' | 'image' | 'folder'>('compress');
 
   // Shared Video File & Queue State
   const [videoMetadata, setVideoMetadata] = useState<VideoMetadata | null>(null);
@@ -103,6 +107,37 @@ export const App: React.FC = () => {
     customOutputDir: null
   });
 
+  // Folder Compression States
+  const [folderScanResult, setFolderScanResult] = useState<FolderScanResult | null>(null);
+  const [folderOutputDir, setFolderOutputDir] = useState<string>('');
+  const [isScanningFolder, setIsScanningFolder] = useState<boolean>(false);
+  const [isCompressingFolder, setIsCompressingFolder] = useState<boolean>(false);
+  const [isCancellingFolder, setIsCancellingFolder] = useState<boolean>(false);
+  const [folderProgressInfo, setFolderProgressInfo] = useState<FolderItemProgress | null>(null);
+  const [folderSummaryResult, setFolderSummaryResult] = useState<FolderCompressionSummary | null>(null);
+  const [folderVideoSettings, setFolderVideoSettings] = useState<CompressionSettings>({
+    quality: 'auto',
+    resolution: 'original',
+    codec: 'h264',
+    audioCodec: 'aac',
+    removeMetadata: true,
+    customOutputDir: null
+  });
+  const [folderImageSettings, setFolderImageSettings] = useState<ImageCompressionSettings>({
+    quality: 'auto',
+    outputFormat: 'original',
+    targetSizeBytes: null,
+    targetPercent: 50,
+    resize: {
+      enabled: false,
+      mode: 'percentage',
+      percentage: 50,
+      lockAspectRatio: true
+    },
+    removeMetadata: true,
+    customOutputDir: null
+  });
+
   // Listen to video compression progress events
   useEffect(() => {
     if (!isDesktop || !window.videoCompressor?.onProgress) return;
@@ -125,11 +160,22 @@ export const App: React.FC = () => {
     };
   }, [isDesktop]);
 
+  // Listen to folder compression progress events
+  useEffect(() => {
+    if (!isDesktop || !window.videoCompressor?.onFolderProgress) return;
+    const unsubscribe = window.videoCompressor.onFolderProgress((p) => {
+      setFolderProgressInfo(p);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [isDesktop]);
+
   // Safe mode switching
-  const handleSwitchMode = (newMode: 'compress' | 'audio' | 'image') => {
+  const handleSwitchMode = (newMode: 'compress' | 'audio' | 'image' | 'folder') => {
     if (newMode === activeMode) return;
 
-    if (isCompressing || isExtractingAudio || isCompressingImage) {
+    if (isCompressing || isExtractingAudio || isCompressingImage || isCompressingFolder) {
       const confirmSwitch = window.confirm(
         'A processing task is currently running in the background. Switching views will not cancel it. Switch now?'
       );
@@ -957,6 +1003,98 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSelectFolder = async () => {
+    if (!isDesktop || !window.videoCompressor) return;
+    setError(null);
+    setIsScanningFolder(true);
+    try {
+      const res = await window.videoCompressor.selectFolder();
+      if (!res.canceled && res.scanResult) {
+        if (res.scanResult.totalFiles === 0) {
+          setError({
+            code: 'NO_MEDIA_FOUND',
+            userMessage: 'No supported video or image files were found in the selected folder.'
+          });
+          setFolderScanResult(null);
+        } else {
+          setFolderScanResult(res.scanResult);
+          setFolderOutputDir(res.scanResult.defaultOutputDir);
+          setFolderSummaryResult(null);
+        }
+      } else if (res.error) {
+        setError(res.error);
+      }
+    } catch {
+      setError({
+        code: 'FOLDER_VALIDATION_FAILED',
+        userMessage: 'Failed to select folder.'
+      });
+    } finally {
+      setIsScanningFolder(false);
+    }
+  };
+
+  const handleSelectFolderOutputDir = async () => {
+    if (!isDesktop || !window.videoCompressor) return;
+    try {
+      const res = await window.videoCompressor.selectOutputDirectory();
+      if (!res.canceled && res.dirPath) {
+        setFolderOutputDir(res.dirPath);
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleStartFolderCompression = async () => {
+    if (!isDesktop || !window.videoCompressor || !folderScanResult) return;
+    setError(null);
+    setFolderSummaryResult(null);
+    setIsCompressingFolder(true);
+    setIsCancellingFolder(false);
+
+    try {
+      const summary = await window.videoCompressor.startFolderCompression({
+        sourceDir: folderScanResult.sourceRootDir,
+        outputDir: folderOutputDir || folderScanResult.defaultOutputDir,
+        videoSettings: folderVideoSettings,
+        imageSettings: folderImageSettings
+      });
+
+      if (summary.error && !summary.success && !summary.isCancelled) {
+        setError(summary.error);
+      } else {
+        setFolderSummaryResult(summary);
+      }
+    } catch (err) {
+      setError({
+        code: 'COMPRESSION_FAILED',
+        userMessage: err instanceof Error ? err.message : 'Folder compression failed.'
+      });
+    } finally {
+      setIsCompressingFolder(false);
+      setIsCancellingFolder(false);
+      setFolderProgressInfo(null);
+    }
+  };
+
+  const handleCancelFolderCompression = async () => {
+    if (!isDesktop || !window.videoCompressor) return;
+    setIsCancellingFolder(true);
+    try {
+      await window.videoCompressor.cancelFolderCompression();
+    } catch (err) {
+      console.warn('Cancel folder compression error', err);
+    }
+  };
+
+  const handleResetFolder = () => {
+    setFolderScanResult(null);
+    setFolderSummaryResult(null);
+    setFolderProgressInfo(null);
+    setFolderOutputDir('');
+  };
+
   const handleOpenFolder = (targetPath?: string) => {
     if (targetPath && isDesktop && window.videoCompressor) {
       window.videoCompressor.showInFolder(targetPath);
@@ -995,6 +1133,15 @@ export const App: React.FC = () => {
           <ImageIcon size={18} />
           <span>Image Compression</span>
         </button>
+
+        <button
+          type="button"
+          className={`mode-tab ${activeMode === 'folder' ? 'active active-folder' : ''}`}
+          onClick={() => handleSwitchMode('folder')}
+        >
+          <Folder size={18} />
+          <span>Folder Compression</span>
+        </button>
       </nav>
 
       <PrivacyBanner mode={activeMode} />
@@ -1006,7 +1153,7 @@ export const App: React.FC = () => {
       {/* ======================================================== */}
       {/* VIDEO / AUDIO SECTIONS (activeMode === 'compress' | 'audio') */}
       {/* ======================================================== */}
-      {activeMode !== 'image' && (
+      {(activeMode === 'compress' || activeMode === 'audio') && (
         <>
           {/* 1. INITIAL STATE: No videos selected */}
           {isDesktop && !videoMetadata && queue.length === 0 && (
@@ -1249,6 +1396,40 @@ export const App: React.FC = () => {
                 />
               )}
             </>
+          )}
+        </>
+      )}
+
+      {/* ======================================================== */}
+      {/* FOLDER COMPRESSION SECTION (activeMode === 'folder')     */}
+      {/* ======================================================== */}
+      {activeMode === 'folder' && (
+        <>
+          {/* 1. INITIAL STATE: No folder selected */}
+          {isDesktop && !folderScanResult && (
+            <DropZone onBrowse={handleSelectFolder} isLoading={isScanningFolder} mode="folder" />
+          )}
+
+          {/* 2. FOLDER SELECTED / IN-FLIGHT / SUMMARY STATE */}
+          {isDesktop && folderScanResult && (
+            <FolderView
+              scanResult={folderScanResult}
+              outputDir={folderOutputDir}
+              isCompressing={isCompressingFolder}
+              isCancelling={isCancellingFolder}
+              progress={folderProgressInfo}
+              summaryResult={folderSummaryResult}
+              videoSettings={folderVideoSettings}
+              imageSettings={folderImageSettings}
+              onSelectFolder={handleSelectFolder}
+              onSelectOutputDir={handleSelectFolderOutputDir}
+              onChangeVideoSettings={setFolderVideoSettings}
+              onChangeImageSettings={setFolderImageSettings}
+              onStartCompression={handleStartFolderCompression}
+              onCancelCompression={handleCancelFolderCompression}
+              onReset={handleResetFolder}
+              onOpenFolder={handleOpenFolder}
+            />
           )}
         </>
       )}

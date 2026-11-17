@@ -9,7 +9,11 @@ import type {
   AudioExtractionResult,
   ImageCompressionSettings,
   ImageCompressionResult,
-  ImageSelectionResult
+  ImageSelectionResult,
+  FolderSelectionResult,
+  FolderScanResult,
+  FolderCompressionSummary,
+  FolderItemProgress
 } from '../common/types';
 
 /**
@@ -37,6 +41,13 @@ const IPC_AUDIO_PROGRESS_EVENT = 'audio:extract-progress';
 const IPC_SELECT_IMAGES = 'image:select';
 const IPC_START_IMAGE_COMPRESSION = 'image:compress-start';
 const IPC_CANCEL_IMAGE_COMPRESSION = 'image:compress-cancel';
+
+// Folder compression channels
+const IPC_SELECT_FOLDER = 'folder:select';
+const IPC_SCAN_FOLDER = 'folder:scan';
+const IPC_START_FOLDER_COMPRESSION = 'folder:compress-start';
+const IPC_CANCEL_FOLDER_COMPRESSION = 'folder:compress-cancel';
+const IPC_FOLDER_PROGRESS_EVENT = 'folder:compress-progress';
 
 console.log('[Preload] Loaded successfully in sandboxed renderer');
 
@@ -147,6 +158,45 @@ contextBridge.exposeInMainWorld('videoCompressor', {
 
     return () => {
       ipcRenderer.removeListener(IPC_AUDIO_PROGRESS_EVENT, listener);
+    };
+  },
+
+  selectFolder: async (): Promise<FolderSelectionResult> => {
+    return await ipcRenderer.invoke(IPC_SELECT_FOLDER);
+  },
+
+  scanFolder: async (
+    folderPath: string
+  ): Promise<{ success: boolean; scanResult?: FolderScanResult; error?: StructuredError }> => {
+    return await ipcRenderer.invoke(IPC_SCAN_FOLDER, folderPath);
+  },
+
+  startFolderCompression: async (params: {
+    sourceDir: string;
+    outputDir: string;
+    videoSettings?: CompressionSettings;
+    imageSettings?: ImageCompressionSettings;
+  }): Promise<FolderCompressionSummary> => {
+    return await ipcRenderer.invoke(IPC_START_FOLDER_COMPRESSION, params);
+  },
+
+  cancelFolderCompression: async (): Promise<{ success: boolean }> => {
+    return await ipcRenderer.invoke(IPC_CANCEL_FOLDER_COMPRESSION);
+  },
+
+  onFolderProgress: (callback: (progress: FolderItemProgress) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, progress: FolderItemProgress) => {
+      try {
+        callback(progress);
+      } catch (err) {
+        console.error('Folder progress callback error', err);
+      }
+    };
+
+    ipcRenderer.on(IPC_FOLDER_PROGRESS_EVENT, listener);
+
+    return () => {
+      ipcRenderer.removeListener(IPC_FOLDER_PROGRESS_EVENT, listener);
     };
   }
 });

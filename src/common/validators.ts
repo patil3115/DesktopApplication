@@ -96,6 +96,11 @@ export function validateCompressionSettings(input: unknown): CompressionSettings
     customOutputDir = validateSafePath(rec['customOutputDir'], 'customOutputDir');
   }
 
+  let customOutputPath: string | undefined = undefined;
+  if (rec['customOutputPath'] !== undefined && rec['customOutputPath'] !== null) {
+    customOutputPath = validateSafePath(rec['customOutputPath'], 'customOutputPath');
+  }
+
   let targetSizeBytes: number | null | undefined = undefined;
   if (rec['targetSizeBytes'] !== undefined && rec['targetSizeBytes'] !== null) {
     const parsedTarget = Number(rec['targetSizeBytes']);
@@ -121,6 +126,7 @@ export function validateCompressionSettings(input: unknown): CompressionSettings
     audioCodec: rec['audioCodec'] as AudioCodecOption,
     removeMetadata: rec['removeMetadata'] as boolean,
     customOutputDir,
+    customOutputPath,
     targetSizeBytes,
     targetPercent
   };
@@ -268,6 +274,11 @@ export function validateImageCompressionSettings(input: unknown): ImageCompressi
     customOutputDir = validateSafePath(rec['customOutputDir'], 'customOutputDir');
   }
 
+  let customOutputPath: string | undefined = undefined;
+  if (rec['customOutputPath'] !== undefined && rec['customOutputPath'] !== null) {
+    customOutputPath = validateSafePath(rec['customOutputPath'], 'customOutputPath');
+  }
+
   return {
     quality: rec['quality'] as QualityPreset,
     outputFormat: rec['outputFormat'] as ImageOutputFormat,
@@ -275,6 +286,7 @@ export function validateImageCompressionSettings(input: unknown): ImageCompressi
     targetPercent,
     resize: validatedResize,
     removeMetadata: rec['removeMetadata'] as boolean,
-    customOutputDir
+    customOutputDir,
+    customOutputPath
   };
 }

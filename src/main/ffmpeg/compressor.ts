@@ -528,7 +528,9 @@ export class CompressionJobSupervisor {
       }
 
       // Generate final destination path
-      const finalDestPath = generateSafeDestinationPath(inputPath, settings.customOutputDir);
+      const finalDestPath = settings.customOutputPath
+        ? path.resolve(settings.customOutputPath)
+        : generateSafeDestinationPath(inputPath, settings.customOutputDir);
 
       // Atomic move
       await atomicMove(tempOutputPath, finalDestPath);

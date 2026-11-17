@@ -48,6 +48,7 @@ export interface CompressionSettings {
   readonly audioCodec: AudioCodecOption;
   readonly removeMetadata: boolean;
   readonly customOutputDir?: string | null;
+  readonly customOutputPath?: string | null;
   readonly targetSizeBytes?: number | null;
   readonly targetPercent?: number | null;
 }
@@ -118,6 +119,9 @@ export interface StructuredError {
     | 'PERMISSION_DENIED'
     | 'ALREADY_RUNNING'
     | 'CANCELLED'
+    | 'FOLDER_SELECTION_CANCELLED'
+    | 'FOLDER_VALIDATION_FAILED'
+    | 'NO_MEDIA_FOUND'
     | 'UNKNOWN_ERROR';
   readonly userMessage: string;
 }
@@ -178,6 +182,16 @@ export interface VideoCompressorAPI {
   showInFolder(filePath: string): Promise<void>;
   onProgress(callback: (progress: CompressionProgress) => void): () => void;
   onAudioProgress(callback: (progress: CompressionProgress) => void): () => void;
+  selectFolder(): Promise<FolderSelectionResult>;
+  scanFolder(folderPath: string): Promise<{ success: boolean; scanResult?: FolderScanResult; error?: StructuredError }>;
+  startFolderCompression(params: {
+    sourceDir: string;
+    outputDir: string;
+    videoSettings?: CompressionSettings;
+    imageSettings?: ImageCompressionSettings;
+  }): Promise<FolderCompressionSummary>;
+  cancelFolderCompression(): Promise<{ success: boolean }>;
+  onFolderProgress(callback: (progress: FolderItemProgress) => void): () => void;
 }
 
 export type ImageInputFormat = 'jpg' | 'jpeg' | 'png' | 'webp' | 'bmp';
@@ -214,6 +228,7 @@ export interface ImageCompressionSettings {
   readonly resize: ImageResizeSettings;
   readonly removeMetadata: boolean;
   readonly customOutputDir?: string | null;
+  readonly customOutputPath?: string | null;
 }
 
 export interface ImageCompressionResult {
@@ -253,5 +268,75 @@ export interface ImageQueueItem {
 export interface ImageSelectionResult {
   readonly canceled: boolean;
   readonly files?: ImageQueueItem[];
+  readonly error?: StructuredError;
+}
+
+export interface FolderDestinationOptions {
+  readonly outputFormat?: string;
+}
+
+export interface ScannedFolderItem {
+  readonly id: string;
+  readonly absolutePath: string;
+  readonly relativePath: string;
+  readonly relativeDir: string;
+  readonly fileName: string;
+  readonly type: 'video' | 'image';
+  readonly fileSizeBytes: number;
+  readonly formattedSize: string;
+}
+
+export interface FolderScanResult {
+  readonly sourceRootDir: string;
+  readonly defaultOutputDir: string;
+  readonly totalFiles: number;
+  readonly videoCount: number;
+  readonly imageCount: number;
+  readonly totalSizeBytes: number;
+  readonly formattedTotalSize: string;
+  readonly items: ScannedFolderItem[];
+}
+
+export interface FolderSelectionResult {
+  readonly canceled: boolean;
+  readonly folderPath?: string;
+  readonly scanResult?: FolderScanResult;
+  readonly error?: StructuredError;
+}
+
+export interface FolderItemProgress {
+  readonly currentItemIndex: number;
+  readonly totalItems: number;
+  readonly currentRelativePath: string;
+  readonly currentType: 'video' | 'image';
+  readonly overallPercent: number;
+  readonly completedCount: number;
+  readonly failedCount: number;
+  readonly currentItemPercent?: number;
+}
+
+export interface FolderProcessedItem {
+  readonly item: ScannedFolderItem;
+  readonly success: boolean;
+  readonly outputPath?: string;
+  readonly outputFileName?: string;
+  readonly originalSizeBytes: number;
+  readonly compressedSizeBytes?: number;
+  readonly reductionPercentage?: number;
+  readonly error?: StructuredError;
+}
+
+export interface FolderCompressionSummary {
+  readonly success: boolean;
+  readonly isCancelled: boolean;
+  readonly sourceRootDir: string;
+  readonly outputRootDir: string;
+  readonly totalItems: number;
+  readonly completedCount: number;
+  readonly failedCount: number;
+  readonly originalTotalBytes: number;
+  readonly compressedTotalBytes: number;
+  readonly overallReductionPercentage: number;
+  readonly items: FolderProcessedItem[];
   readonly error?: StructuredError;
 }

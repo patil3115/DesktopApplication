@@ -632,11 +632,13 @@ export class ImageJobSupervisor {
       }
 
       // Generate collision-safe final destination
-      const finalDestPath = generateSafeImageDestinationPath(
-        inputPath,
-        outExt,
-        settings.customOutputDir
-      );
+      const finalDestPath = settings.customOutputPath
+        ? path.resolve(settings.customOutputPath)
+        : generateSafeImageDestinationPath(
+            inputPath,
+            outExt,
+            settings.customOutputDir
+          );
 
       // Atomic move to destination
       await atomicMove(finalTempFile, finalDestPath);

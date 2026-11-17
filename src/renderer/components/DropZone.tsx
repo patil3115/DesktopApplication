@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { UploadCloud, Film, Image as ImageIcon } from 'lucide-react';
+import { UploadCloud, Film, Image as ImageIcon, Folder } from 'lucide-react';
 
 interface DropZoneProps {
   onBrowse: () => void;
   isLoading: boolean;
-  mode?: 'video' | 'image';
+  mode?: 'video' | 'image' | 'folder';
 }
 
 export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading, mode = 'video' }) => {
@@ -30,6 +30,7 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading, mode = 
   };
 
   const isImage = mode === 'image';
+  const isFolder = mode === 'folder';
 
   return (
     <div
@@ -43,7 +44,9 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading, mode = 
     >
       <div className="dropzone-icon">
         {isDragOver ? (
-          isImage ? <ImageIcon size={48} /> : <Film size={48} />
+          isFolder ? <Folder size={48} /> : isImage ? <ImageIcon size={48} /> : <Film size={48} />
+        ) : isFolder ? (
+          <Folder size={48} />
         ) : isImage ? (
           <ImageIcon size={48} />
         ) : (
@@ -53,11 +56,15 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading, mode = 
       <div>
         <p className="dropzone-text-primary">
           {isLoading
-            ? (isImage ? 'Inspecting image metadata...' : 'Inspecting video metadata...')
-            : (isImage ? 'Drag & Drop Image(s) Here' : 'Drag & Drop Video(s) Here')}
+            ? (isFolder ? 'Scanning folder for media...' : isImage ? 'Inspecting image metadata...' : 'Inspecting video metadata...')
+            : (isFolder ? 'Drag & Drop Media Folder Here' : isImage ? 'Drag & Drop Image(s) Here' : 'Drag & Drop Video(s) Here')}
         </p>
         <p className="dropzone-text-secondary">
-          {isImage ? 'Supported: JPG, JPEG, PNG, WebP, BMP' : 'Supported: MP4, MKV, MOV, AVI, WEBM, M4V'}
+          {isFolder
+            ? 'Recursively scans and compresses nested videos & images with original filenames preserved'
+            : isImage
+            ? 'Supported: JPG, JPEG, PNG, WebP, BMP'
+            : 'Supported: MP4, MKV, MOV, AVI, WEBM, M4V'}
         </p>
       </div>
       <button
@@ -69,7 +76,13 @@ export const DropZone: React.FC<DropZoneProps> = ({ onBrowse, isLoading, mode = 
         }}
         disabled={isLoading}
       >
-        {isLoading ? 'Reading File...' : isImage ? 'Browse Images' : 'Browse Videos'}
+        {isLoading
+          ? (isFolder ? 'Scanning...' : 'Reading File...')
+          : isFolder
+          ? 'Browse Folder'
+          : isImage
+          ? 'Browse Images'
+          : 'Browse Videos'}
       </button>
     </div>
   );

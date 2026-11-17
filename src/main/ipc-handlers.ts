@@ -10,8 +10,10 @@ import {
 import {
   validateInputVideoPath,
   validateInputImagePath,
-  validateOutputDirectoryPath
+  validateOutputDirectoryPath,
+  validateSourceDirectoryPath
 } from './fs/path-sanitizer';
+import { scanFolderForMedia, folderJobSupervisor } from './folder/folder-compressor';
 import { probeVideoFile } from './ffmpeg/probe';
 import { jobSupervisor } from './ffmpeg/compressor';
 import { audioExtractorSupervisor } from './ffmpeg/audio-extractor';
@@ -24,7 +26,8 @@ import {
   SelectedFileItem,
   ImageMetadata,
   ImageQueueItem,
-  ImageSelectionResult
+  ImageSelectionResult,
+  FolderSelectionResult
 } from '../common/types';
 import { logger } from './utils/logger';
 
@@ -537,6 +540,99 @@ export function registerIpcHandlers(mainWindow: BrowserWindow): void {
   // Handler: Cancel Image Compression
   ipcMain.handle(IPC_CHANNELS.CANCEL_IMAGE_COMPRESSION, async () => {
     const wasRunning = await imageJobSupervisor.cancel();
+    return { success: wasRunning };
+  });
+
+  // Handler: Select folder for media compression
+  ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (): Promise<FolderSelectionResult> => {
+    try {
+      const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Select Folder to Compress',
+        properties: ['openDirectory']
+      });
+
+      if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+        return { canceled: true };
+      }
+
+      const rawFolder = result.filePaths[0]!;
+      const validatedFolder = validateSourceDirectoryPath(rawFolder);
+      const scanResult = await scanFolderForMedia(validatedFolder);
+
+      return {
+        canceled: false,
+        folderPath: validatedFolder,
+        scanResult
+      };
+    } catch (err) {
+      logger.error('Failed to select folder for compression', err);
+      return {
+        canceled: false,
+        error: {
+          code: 'FOLDER_VALIDATION_FAILED',
+          userMessage: err instanceof Error ? err.message : 'Failed to select or validate folder.'
+        }
+      };
+    }
+  });
+
+  // Handler: Scan folder for media
+  ipcMain.handle(IPC_CHANNELS.SCAN_FOLDER, async (_event, rawFolder: unknown) => {
+    try {
+      const validatedFolder = validateSourceDirectoryPath(rawFolder);
+      const scanResult = await scanFolderForMedia(validatedFolder);
+      return { success: true, scanResult };
+    } catch (err) {
+      return {
+        success: false,
+        error: {
+          code: 'FOLDER_VALIDATION_FAILED',
+          userMessage: err instanceof Error ? err.message : 'Failed to scan folder.'
+        }
+      };
+    }
+  });
+
+  // Handler: Start folder compression
+  ipcMain.handle(
+    IPC_CHANNELS.START_FOLDER_COMPRESSION,
+    async (_event, rawParams: unknown) => {
+      try {
+        if (!rawParams || typeof rawParams !== 'object') {
+          return {
+            success: false,
+            error: {
+              code: 'INVALID_INPUT',
+              userMessage: 'Invalid folder compression parameters.'
+            }
+          };
+        }
+        const p = rawParams as { sourceDir: string; outputDir: string; videoSettings?: unknown; imageSettings?: unknown };
+        const summary = await folderJobSupervisor.startFolderCompression(
+          p,
+          (progress) => {
+            if (!mainWindow.isDestroyed()) {
+              mainWindow.webContents.send(IPC_CHANNELS.FOLDER_PROGRESS_EVENT, progress);
+            }
+          }
+        );
+        return summary;
+      } catch (err) {
+        logger.error('Unhandled folder compression error', err);
+        return {
+          success: false,
+          error: {
+            code: 'COMPRESSION_FAILED',
+            userMessage: err instanceof Error ? err.message : 'Folder compression failed.'
+          }
+        };
+      }
+    }
+  );
+
+  // Handler: Cancel folder compression
+  ipcMain.handle(IPC_CHANNELS.CANCEL_FOLDER_COMPRESSION, async () => {
+    const wasRunning = await folderJobSupervisor.cancel();
     return { success: wasRunning };
   });
 

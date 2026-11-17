@@ -28,6 +28,73 @@ export function generateSafeDestinationPath(
   return candidate;
 }
 
+export interface FolderDestinationOptions {
+  /** Desired output format/extension for format conversion (e.g. 'webp', 'jpg', 'png', or 'original') */
+  outputFormat?: string;
+}
+
+/**
+ * Generates a collision-safe destination file path for folder-based media compression.
+ * 
+ * Rules:
+ * 1. Preserves exact original filename and extension when keeping original format.
+ * 2. Preserves complete relative directory hierarchy from sourceRootDir to targetOutputDir.
+ * 3. Never appends `_compressed`, `_converted`, or other suffixes.
+ * 4. When converting format, updates the extension to the new format (e.g. photo1.png -> photo1.webp).
+ * 5. Handles existing destination collisions deterministically using numbered alternatives:
+ *    photo.jpg -> photo (1).jpg -> photo (2).jpg
+ * 6. Supports a claimedPaths set to prevent intra-batch collisions when multiple source files
+ *    map to the same destination filename (e.g. photo1.jpg and photo1.png both converted to webp).
+ * 7. Never silently overwrites an existing file.
+ */
+export function generateFolderSafeDestinationPath(
+  sourceFilePath: string,
+  sourceRootDir: string,
+  targetOutputDir: string,
+  options?: FolderDestinationOptions,
+  claimedPaths?: Set<string>
+): string {
+  const resolvedSourceRoot = path.resolve(sourceRootDir);
+  const resolvedTargetRoot = path.resolve(targetOutputDir);
+  const resolvedSourceFile = path.resolve(sourceFilePath);
+
+  // Compute relative path from source root
+  const relPath = path.relative(resolvedSourceRoot, resolvedSourceFile);
+  const relDir = path.dirname(relPath);
+
+  const parsed = path.parse(resolvedSourceFile);
+  const baseName = parsed.name;
+  let ext = parsed.ext;
+
+  // Handle format conversion if specified and not 'original'
+  if (options?.outputFormat && options.outputFormat.toLowerCase() !== 'original') {
+    const rawFmt = options.outputFormat.toLowerCase().replace(/^\./, '');
+    ext = `.${rawFmt === 'jpeg' ? 'jpg' : rawFmt}`;
+  }
+
+  // Ensure target subdirectory path
+  const targetSubDir = relDir === '.' || !relDir ? resolvedTargetRoot : path.join(resolvedTargetRoot, relDir);
+
+  // Primary candidate: exact original filename + extension (or converted extension)
+  let candidate = path.join(targetSubDir, `${baseName}${ext}`);
+  let counter = 1;
+
+  const isCollision = (p: string): boolean => {
+    return fs.existsSync(p) || (claimedPaths ? claimedPaths.has(p.toLowerCase()) : false);
+  };
+
+  while (isCollision(candidate)) {
+    candidate = path.join(targetSubDir, `${baseName} (${counter})${ext}`);
+    counter++;
+  }
+
+  if (claimedPaths) {
+    claimedPaths.add(candidate.toLowerCase());
+  }
+
+  return candidate;
+}
+
 /**
  * Atomically moves or safely copies + removes temporary output to final destination.
  * Validates file sizes match before unlinking temporary source.

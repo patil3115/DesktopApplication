@@ -150,3 +150,72 @@ export function validateOutputDirectoryPath(rawPath: unknown): string {
 
   return resolved;
 }
+
+/**
+ * Validates a source directory path for folder compression.
+ */
+export function validateSourceDirectoryPath(rawPath: unknown): string {
+  const safePath = validateSafePath(rawPath, 'sourceDirectory');
+  const resolved = path.resolve(safePath);
+
+  const root = path.parse(resolved).root;
+  if (resolved.toLowerCase() === root.toLowerCase()) {
+    throw new ValidationError('Source folder cannot be a drive root.');
+  }
+
+  const lowerResolved = resolved.toLowerCase();
+  for (const sensitive of SENSITIVE_DIRS) {
+    if (lowerResolved.startsWith(sensitive.toLowerCase() + path.sep)) {
+      logger.security('Attempted access to protected system directory', rawPath);
+      throw new ValidationError('Access to operating system directories is denied.');
+    }
+  }
+
+  let stats: fs.Stats;
+  try {
+    stats = fs.statSync(resolved);
+  } catch {
+    throw new ValidationError('Selected source directory does not exist or is inaccessible.');
+  }
+
+  if (!stats.isDirectory()) {
+    throw new ValidationError('Source target must be a valid directory.');
+  }
+
+  return resolved;
+}
+
+/**
+ * Validates folder compression paths to ensure:
+ * 1. Source directory is valid and exists
+ * 2. Output directory is a safe path and not equal to source directory
+ * 3. Output directory is NOT located inside the source directory
+ */
+export function validateFolderCompressionPaths(rawSourceDir: unknown, rawOutputDir: unknown): {
+  sourceDir: string;
+  outputDir: string;
+} {
+  const sourceDir = validateSourceDirectoryPath(rawSourceDir);
+  const safeOutput = validateSafePath(rawOutputDir, 'outputDirectory');
+  const outputDir = path.resolve(safeOutput);
+
+  if (sourceDir.toLowerCase() === outputDir.toLowerCase()) {
+    throw new ValidationError('Output directory cannot be the same as the source directory.');
+  }
+
+  // Check if outputDir is inside sourceDir
+  const rel = path.relative(sourceDir, outputDir);
+  if (!rel.startsWith('..') && !path.isAbsolute(rel)) {
+    throw new ValidationError('Output directory cannot be located inside the source directory.');
+  }
+
+  // If output directory already exists, verify it is a directory
+  if (fs.existsSync(outputDir)) {
+    const stat = fs.statSync(outputDir);
+    if (!stat.isDirectory()) {
+      throw new ValidationError('Output destination path must be a directory.');
+    }
+  }
+
+  return { sourceDir, outputDir };
+}

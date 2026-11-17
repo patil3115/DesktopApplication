@@ -20,7 +20,14 @@ export const IPC_CHANNELS = {
   // Image compression channels
   SELECT_IMAGES: 'image:select',
   START_IMAGE_COMPRESSION: 'image:compress-start',
-  CANCEL_IMAGE_COMPRESSION: 'image:compress-cancel'
+  CANCEL_IMAGE_COMPRESSION: 'image:compress-cancel',
+
+  // Folder compression channels
+  SELECT_FOLDER: 'folder:select',
+  SCAN_FOLDER: 'folder:scan',
+  START_FOLDER_COMPRESSION: 'folder:compress-start',
+  CANCEL_FOLDER_COMPRESSION: 'folder:compress-cancel',
+  FOLDER_PROGRESS_EVENT: 'folder:compress-progress'
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

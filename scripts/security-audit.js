@@ -29,8 +29,17 @@ const {
 const {
   validateInputVideoPath,
   validateInputImagePath,
-  validateOutputDirectoryPath
+  validateOutputDirectoryPath,
+  validateFolderCompressionPaths,
+  validateSourceDirectoryPath
 } = require('../dist-electron/main/fs/path-sanitizer');
+const {
+  generateFolderSafeDestinationPath
+} = require('../dist-electron/main/fs/atomic-move');
+const {
+  scanFolderForMedia,
+  folderJobSupervisor
+} = require('../dist-electron/main/folder/folder-compressor');
 const { parseFfmpegProgress } = require('../dist-electron/main/ffmpeg/progress-parser');
 const { TempFileManager } = require('../dist-electron/main/fs/temp-manager');
 const { generateSafeAudioDestinationPath } = require('../dist-electron/main/ffmpeg/audio-extractor');
@@ -1366,6 +1375,218 @@ async function runAudit() {
     currentActiveQueue = [];
   }
   assert(currentActiveQueue.length === 3, 'Dialog cancellation preserves existing queue without clearing');
+
+  // 16. Folder Compression & Preserved Output Naming Suite
+  console.log('\n--- 16. Folder Compression & Preserved Output Naming Audit ---');
+  
+  // 16.1 Path & Directory Validation Security
+  assertThrows(() => validateSourceDirectoryPath(''), 'Reject empty source directory path');
+  assertThrows(() => validateSourceDirectoryPath('C:\\Windows\\System32'), 'Reject access to protected OS system directory as source');
+  assertThrows(() => validateSourceDirectoryPath('C:\\'), 'Reject drive root directly as source folder');
+  assertThrows(() => validateSourceDirectoryPath('C:\\nonexistent_dir_123456789'), 'Reject nonexistent source folder');
+
+  const testSourceDir = path.join(__dirname, 'test_media_folder_src');
+  const testOutputDir = path.join(__dirname, 'test_media_folder_out');
+  const testInsideDir = path.join(testSourceDir, 'inside_out');
+
+  // Create clean test directories
+  if (fs.existsSync(testSourceDir)) fs.rmSync(testSourceDir, { recursive: true, force: true });
+  if (fs.existsSync(testOutputDir)) fs.rmSync(testOutputDir, { recursive: true, force: true });
+  fs.mkdirSync(testSourceDir, { recursive: true });
+
+  assertThrows(() => validateFolderCompressionPaths(testSourceDir, testSourceDir), 'Reject output directory same as source directory');
+  assertThrows(() => validateFolderCompressionPaths(testSourceDir, testInsideDir), 'Reject output directory inside source directory');
+  
+  const validatedPaths = validateFolderCompressionPaths(testSourceDir, testOutputDir);
+  assert(validatedPaths.sourceDir === path.resolve(testSourceDir) && validatedPaths.outputDir === path.resolve(testOutputDir), 'Accept valid outside output directory');
+
+  // 16.2 Output Path & Preserved Filename Generation Tests
+  const dummyWeddingVideo = path.join(testSourceDir, 'Wedding', 'video1.mp4');
+  const safeDestVideo = generateFolderSafeDestinationPath(dummyWeddingVideo, testSourceDir, testOutputDir);
+  assert(path.basename(safeDestVideo) === 'video1.mp4', 'Video retains exact original filename (video1.mp4)');
+  assert(path.extname(safeDestVideo) === '.mp4', 'Video retains exact original extension (.mp4)');
+  assert(!safeDestVideo.includes('_compressed') && !safeDestVideo.includes('_converted'), 'Video destination does NOT append _compressed or _converted');
+  assert(safeDestVideo.includes(path.join('Wedding', 'video1.mp4')), 'Video retains relative subdirectory hierarchy (Wedding/video1.mp4)');
+
+  const dummyWeddingPhoto = path.join(testSourceDir, 'Wedding', 'photo1.jpg');
+  const safeDestPhoto = generateFolderSafeDestinationPath(dummyWeddingPhoto, testSourceDir, testOutputDir);
+  assert(path.basename(safeDestPhoto) === 'photo1.jpg', 'Image retains exact original filename (photo1.jpg)');
+  assert(path.extname(safeDestPhoto) === '.jpg', 'Image retains exact original extension (.jpg)');
+  assert(!safeDestPhoto.includes('_compressed') && !safeDestPhoto.includes('_converted'), 'Image destination does NOT append _compressed or _converted');
+
+  const dummyNestedVideo = path.join(testSourceDir, 'Wedding', 'Reception', 'video2.mov');
+  const safeDestNested = generateFolderSafeDestinationPath(dummyNestedVideo, testSourceDir, testOutputDir);
+  assert(safeDestNested.includes(path.join('Wedding', 'Reception', 'video2.mov')), 'Deeply nested folder retains structure (Wedding/Reception/video2.mov)');
+  assert(path.basename(safeDestNested) === 'video2.mov', 'Nested video retains exact original filename and extension');
+
+  // Test: Different folders containing identical filenames remain separate
+  const dummyWeddingSame = path.join(testSourceDir, 'Wedding', 'common.mp4');
+  const dummyTravelSame = path.join(testSourceDir, 'Travel', 'common.mp4');
+  const safeCommon1 = generateFolderSafeDestinationPath(dummyWeddingSame, testSourceDir, testOutputDir);
+  const safeCommon2 = generateFolderSafeDestinationPath(dummyTravelSame, testSourceDir, testOutputDir);
+  assert(safeCommon1 !== safeCommon2, 'Identical filenames in different folders produce distinct output paths');
+  assert(safeCommon1.includes(path.join('Wedding', 'common.mp4')), 'First file kept in Wedding');
+  assert(safeCommon2.includes(path.join('Travel', 'common.mp4')), 'Second file kept in Travel');
+
+  // Test: Format Conversion
+  const dummyPhotoToConvert = path.join(testSourceDir, 'Wedding', 'photo1.png');
+  const safeConverted = generateFolderSafeDestinationPath(dummyPhotoToConvert, testSourceDir, testOutputDir, { outputFormat: 'webp' });
+  assert(path.basename(safeConverted) === 'photo1.webp', 'Format conversion uses new extension while preserving basename (photo1.webp)');
+
+  // Test: Deterministic Collision Handling
+  const destSubDir = path.join(testOutputDir, 'Wedding');
+  fs.mkdirSync(destSubDir, { recursive: true });
+  const existingFilePath = path.join(destSubDir, 'collision_test.jpg');
+  fs.writeFileSync(existingFilePath, 'dummy data');
+
+  const collisionInput = path.join(testSourceDir, 'Wedding', 'collision_test.jpg');
+  const safeCollision1 = generateFolderSafeDestinationPath(collisionInput, testSourceDir, testOutputDir);
+  assert(path.basename(safeCollision1) === 'collision_test (1).jpg', 'Deterministic numbered alternative on collision: collision_test (1).jpg');
+
+  // Write second file to trigger counter increment
+  fs.writeFileSync(safeCollision1, 'dummy data 2');
+  const safeCollision2 = generateFolderSafeDestinationPath(collisionInput, testSourceDir, testOutputDir);
+  assert(path.basename(safeCollision2) === 'collision_test (2).jpg', 'Deterministic auto-increment on second collision: collision_test (2).jpg');
+
+  // Test: Intra-batch claimed paths collision handling
+  const claimed = new Set();
+  const batchItem1 = generateFolderSafeDestinationPath(path.join(testSourceDir, 'Wedding', 'img.png'), testSourceDir, testOutputDir, { outputFormat: 'webp' }, claimed);
+  const batchItem2 = generateFolderSafeDestinationPath(path.join(testSourceDir, 'Wedding', 'img.jpg'), testSourceDir, testOutputDir, { outputFormat: 'webp' }, claimed);
+  assert(path.basename(batchItem1) === 'img.webp', 'First intra-batch item gets primary target (img.webp)');
+  assert(path.basename(batchItem2) === 'img (1).webp', 'Second intra-batch item safely resolves collision (img (1).webp)');
+
+  // 16.3 Live End-to-End Media Folder Scanning & Compression Test
+  console.log('\n--- 16.3 Live Local Folder Compression (End-to-End) ---');
+  
+  const weddingDir = path.join(testSourceDir, 'Wedding');
+  const receptionDir = path.join(weddingDir, 'Reception');
+  const travelDir = path.join(testSourceDir, 'Travel');
+  fs.mkdirSync(receptionDir, { recursive: true });
+  fs.mkdirSync(travelDir, { recursive: true });
+
+  const ffmpegBin = require('../dist-electron/main/ffmpeg/binary-resolver').binaryResolver.getFfmpegPath();
+
+  const createSmallVideo = (destPath) => {
+    return new Promise((res, rej) => {
+      const child = spawn(ffmpegBin, [
+        '-nostdin', '-y',
+        '-f', 'lavfi', '-i', 'testsrc=duration=1:size=320x240:rate=15',
+        '-f', 'lavfi', '-i', 'sine=frequency=1000:duration=1',
+        '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+        '-c:a', 'aac',
+        destPath
+      ], { windowsHide: true });
+      child.on('close', code => code === 0 ? res() : rej(new Error(`ffmpeg exited with code ${code}`)));
+      child.on('error', rej);
+    });
+  };
+
+  const createSmallImage = (destPath) => {
+    return new Promise((res, rej) => {
+      const child = spawn(ffmpegBin, [
+        '-nostdin', '-y',
+        '-f', 'lavfi', '-i', 'color=c=blue:s=160x120',
+        '-frames:v', '1',
+        destPath
+      ], { windowsHide: true });
+      child.on('close', code => code === 0 ? res() : rej(new Error(`ffmpeg image gen failed with code ${code}`)));
+      child.on('error', rej);
+    });
+  };
+
+  const srcVideo1 = path.join(weddingDir, 'video1.mp4');
+  const srcPhoto1 = path.join(weddingDir, 'photo1.jpg');
+  const srcVideo2 = path.join(receptionDir, 'video2.mp4');
+  const srcPhoto2 = path.join(receptionDir, 'photo2.png');
+  const srcVideo3 = path.join(travelDir, 'video3.mp4');
+
+  await Promise.all([
+    createSmallVideo(srcVideo1),
+    createSmallImage(srcPhoto1),
+    createSmallVideo(srcVideo2),
+    createSmallImage(srcPhoto2),
+    createSmallVideo(srcVideo3)
+  ]);
+
+  const originalStats = {
+    v1: fs.statSync(srcVideo1).size,
+    p1: fs.statSync(srcPhoto1).size,
+    v2: fs.statSync(srcVideo2).size,
+    p2: fs.statSync(srcPhoto2).size,
+    v3: fs.statSync(srcVideo3).size
+  };
+
+  const scanResult = await scanFolderForMedia(testSourceDir);
+  assert(scanResult.totalFiles === 5, 'Folder scanner found exactly 5 media items');
+  assert(scanResult.videoCount === 3, 'Found exactly 3 video files');
+  assert(scanResult.imageCount === 2, 'Found exactly 2 image files');
+  assert(scanResult.defaultOutputDir.endsWith('test_media_folder_src_Compressed'), 'Recommended output folder is outside source folder');
+
+  const liveOutputDir = path.join(__dirname, 'test_media_folder_live_out');
+  if (fs.existsSync(liveOutputDir)) fs.rmSync(liveOutputDir, { recursive: true, force: true });
+
+  const progressTicks = [];
+  const folderSummary = await folderJobSupervisor.startFolderCompression({
+    sourceDir: testSourceDir,
+    outputDir: liveOutputDir,
+    videoSettings: { quality: 'medium', resolution: 'original', codec: 'h264', audioCodec: 'aac', removeMetadata: true },
+    imageSettings: { quality: 'medium', outputFormat: 'original', removeMetadata: true }
+  }, (prog) => {
+    progressTicks.push(prog.overallPercent);
+  });
+
+  assert(folderSummary.success === true, 'Folder compression completed with success');
+  assert(folderSummary.completedCount === 5, 'All 5 media items completed successfully');
+  assert(folderSummary.failedCount === 0, 'Zero failed items in folder compression');
+  assert(progressTicks.length > 0, 'Progress callback fired during folder compression');
+
+  const outVideo1 = path.join(liveOutputDir, 'Wedding', 'video1.mp4');
+  const outPhoto1 = path.join(liveOutputDir, 'Wedding', 'photo1.jpg');
+  const outVideo2 = path.join(liveOutputDir, 'Wedding', 'Reception', 'video2.mp4');
+  const outPhoto2 = path.join(liveOutputDir, 'Wedding', 'Reception', 'photo2.png');
+  const outVideo3 = path.join(liveOutputDir, 'Travel', 'video3.mp4');
+
+  assert(fs.existsSync(outVideo1), 'Output Wedding/video1.mp4 exists');
+  assert(fs.existsSync(outPhoto1), 'Output Wedding/photo1.jpg exists');
+  assert(fs.existsSync(outVideo2), 'Output Wedding/Reception/video2.mp4 exists');
+  assert(fs.existsSync(outPhoto2), 'Output Wedding/Reception/photo2.png exists');
+  assert(fs.existsSync(outVideo3), 'Output Travel/video3.mp4 exists');
+
+  assert(fs.statSync(srcVideo1).size === originalStats.v1, 'Source video1.mp4 remains untouched');
+  assert(fs.statSync(srcPhoto1).size === originalStats.p1, 'Source photo1.jpg remains untouched');
+  assert(fs.statSync(srcVideo2).size === originalStats.v2, 'Source video2.mp4 remains untouched');
+  assert(fs.statSync(srcPhoto2).size === originalStats.p2, 'Source photo2.png remains untouched');
+  assert(fs.statSync(srcVideo3).size === originalStats.v3, 'Source video3.mp4 remains untouched');
+
+  const ffprobeBin = require('../dist-electron/main/ffmpeg/binary-resolver').binaryResolver.getFfprobePath();
+  const probeOutputFile = (filePath) => {
+    return new Promise((res, rej) => {
+      const child = spawn(ffprobeBin, [
+        '-v', 'error',
+        '-show_entries', 'format=duration,size:stream=codec_type,width,height',
+        '-of', 'json',
+        filePath
+      ], { windowsHide: true });
+      let out = '';
+      child.stdout.on('data', d => out += d.toString());
+      child.on('close', code => code === 0 ? res(JSON.parse(out)) : rej(new Error('ffprobe failed')));
+      child.on('error', rej);
+    });
+  };
+
+  const probedVideo = await probeOutputFile(outVideo1);
+  assert(probedVideo.streams && probedVideo.streams.length > 0, 'Compressed video has valid streams');
+  assert(probedVideo.streams.some(s => s.codec_type === 'video'), 'Compressed video has valid video stream');
+
+  const probedImage = await probeOutputFile(outPhoto1);
+  assert(probedImage.streams && probedImage.streams.length > 0, 'Compressed image has valid streams');
+  assert(probedImage.streams[0].width > 0 && probedImage.streams[0].height > 0, 'Compressed image has valid dimensions');
+
+  try {
+    fs.rmSync(testSourceDir, { recursive: true, force: true });
+    fs.rmSync(testOutputDir, { recursive: true, force: true });
+    fs.rmSync(liveOutputDir, { recursive: true, force: true });
+  } catch {}
 
   console.log('\n====================================================');
   console.log(`AUDIT RESULTS: ${passedTests} PASSED, ${failedTests} FAILED (TOTAL: ${totalTests})`);
