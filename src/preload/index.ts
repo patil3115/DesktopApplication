@@ -60,7 +60,9 @@ contextBridge.exposeInMainWorld('videoCompressor', {
   getRuntimeInfo: () => ({
     electron: true,
     preload: true,
-    apiVersion: 1
+    apiVersion: 1,
+    appVersion: '1.0.0',
+    buildCommit: 'af66fb5'
   }),
 
   selectVideo: selectVideoImpl,

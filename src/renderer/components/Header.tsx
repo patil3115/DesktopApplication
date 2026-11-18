@@ -10,7 +10,12 @@ export const Header: React.FC = () => {
         </div>
         <div>
           <h1 className="brand-title">Secure Video Compressor</h1>
-          <p className="brand-subtitle">Offline-First • Zero Cloud • Local FFmpeg Processing</p>
+          <p className="brand-subtitle">
+            Offline-First • Zero Cloud • Local FFmpeg Processing
+            <span style={{ opacity: 0.7, marginLeft: '6px', fontSize: '11px' }} title="Verified Build: af66fb5">
+              (v1.0.0 • build af66fb5)
+            </span>
+          </p>
         </div>
       </div>
       <div className="privacy-badge" title="No network sockets or remote analytics exist in this application">
